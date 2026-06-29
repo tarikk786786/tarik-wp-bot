@@ -8,6 +8,14 @@ import { clearAllMemory } from '../services/memory.js';
 
 const router = express.Router();
 
+router.use((req, res, next) => {
+  if (process.env.VERCEL) {
+    // Start bot asynchronously on any API request if not already starting
+    startWhatsAppBot().catch(console.error);
+  }
+  next();
+});
+
 router.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });

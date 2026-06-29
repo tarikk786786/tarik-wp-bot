@@ -7,10 +7,17 @@ import fs from 'fs';
 import path from 'path';
 
 let sock: any = null;
-const authFolder = path.join(process.cwd(), 'baileys_auth_info');
+const isVercel = process.env.VERCEL === '1' || process.env.VERCEL;
+const authFolder = isVercel ? '/tmp/baileys_auth_info' : path.join(process.cwd(), 'baileys_auth_info');
+
+let botStarting = false;
 
 export async function startWhatsAppBot() {
-  const { state, saveCreds } = await useMultiFileAuthState(authFolder);
+  if (sock || botStarting) return;
+  botStarting = true;
+  try {
+    const { state, saveCreds } = await useMultiFileAuthState(authFolder);
+
   const { version, isLatest } = await fetchLatestBaileysVersion();
   
   emitLog(`using WA v${version.join('.')}, isLatest: ${isLatest}`, 'info');
@@ -69,6 +76,12 @@ export async function startWhatsAppBot() {
       }
     }
   });
+
+  botStarting = false;
+} catch (err) {
+  botStarting = false;
+  emitLog('Failed to start WhatsApp bot: ' + String(err), 'error');
+}
 }
 
 export function stopWhatsAppBot() {
