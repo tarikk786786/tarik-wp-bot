@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: whatsapp-bot
+    env: node
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: VERCEL
+        value: "0"

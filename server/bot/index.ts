@@ -7,8 +7,8 @@ import fs from 'fs';
 import path from 'path';
 
 let sock: any = null;
-const isVercel = process.env.VERCEL === '1' || process.env.VERCEL;
-const authFolder = isVercel ? '/tmp/baileys_auth_info' : path.join(process.cwd(), 'baileys_auth_info');
+const isStateless = process.env.VERCEL === '1' || process.env.VERCEL === 'true' || process.env.RENDER === '1' || process.env.RENDER === 'true' || process.env.RENDER;
+const authFolder = isStateless ? '/tmp/baileys_auth_info' : path.join(process.cwd(), 'baileys_auth_info');
 
 let botStarting = false;
 
@@ -56,12 +56,16 @@ export async function startWhatsAppBot() {
     printQRInTerminal: false,
     auth: state,
     generateHighQualityLinkPreview: true,
+    keepAliveIntervalMs: 20000,
+    connectTimeoutMs: 60000,
+    defaultQueryTimeoutMs: 60000,
+    retryRequestDelayMs: 1000,
   });
 
-  sock.ev.on('creds.update', (creds) => {
-      saveCreds();
-      // On update, if in Vercel, emit the creds so the client can save them
-      if (isVercel) {
+  sock.ev.on('creds.update', async () => {
+      await saveCreds();
+      // On update, if in Vercel/Render, emit the creds so the client can save them
+      if (isStateless) {
           const credsString = getCreds();
           if (credsString) {
               const io = getIo();
@@ -97,7 +101,7 @@ export async function startWhatsAppBot() {
         if (fs.existsSync(authFolder)) {
             fs.rmSync(authFolder, { recursive: true, force: true });
         }
-        if (isVercel) {
+        if (isStateless) {
             const io = getIo();
             if (io) io.emit('creds_update', '');
         }
@@ -108,7 +112,7 @@ export async function startWhatsAppBot() {
       emitLog('WhatsApp connected successfully!', 'info');
       emitStatus('connected');
       emitQR('');
-      if (isVercel) {
+      if (isStateless) {
           const credsString = getCreds();
           if (credsString) {
               const io = getIo();

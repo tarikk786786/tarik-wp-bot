@@ -192,6 +192,7 @@ export default function App() {
 
     // Polling fallback for serverless environments (Vercel)
     let isPolling = true;
+    let isSyncing = false;
     const pollStatus = async () => {
         if (!isPolling) return;
         try {
@@ -203,14 +204,17 @@ export default function App() {
                     localStorage.setItem('wa_creds', data.creds);
                 }
             }
-            if (data.needsCreds) {
+            if (data.needsCreds && !isSyncing) {
                 const creds = localStorage.getItem('wa_creds');
                 if (creds) {
+                    isSyncing = true;
                     fetch('/api/auth/sync', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ creds })
-                    }).catch(console.error);
+                    }).finally(() => {
+                        setTimeout(() => { isSyncing = false; }, 2000);
+                    }).catch(() => {});
                 }
             }
             setStatus(prev => {
@@ -222,7 +226,7 @@ export default function App() {
                 setQrCode(prev => prev !== data.qr ? data.qr : prev);
             }
         } catch (e) {
-            console.error(e);
+            // Quietly ignore network errors during polling (e.g. server restart)
         } finally {
             if (isPolling) {
                 setTimeout(pollStatus, 500); // Wait 500ms before next poll
@@ -256,6 +260,7 @@ export default function App() {
 
   const handleLogout = async () => {
       if (confirm('Are you sure you want to unlink WhatsApp and generate a new QR?')) {
+          localStorage.removeItem('wa_creds');
           await fetch('/api/bot/logout', { method: 'POST' });
       }
   };

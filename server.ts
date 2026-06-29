@@ -40,7 +40,8 @@ async function setupVite() {
 }
 setupVite();
 
-if (!process.env.VERCEL) {
+const isServerless = process.env.VERCEL === '1' || process.env.VERCEL === 'true';
+if (!isServerless) {
   httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
     startWhatsAppBot();
