@@ -1,130 +1,182 @@
-import { makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
+import { makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion, WASocket } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import QRCode from 'qrcode';
-import { emitStatus, emitLog, emitQR, getIo } from '../services/socket.js';
+import { emitStatus, emitLog, emitQR, setConnectedNumber, setLastLoginTime } from '../services/socket.js';
 import { handleIncomingMessage } from './handler.js';
 import fs from 'fs';
 import path from 'path';
 
-let sock: any = null;
-const isVercel = process.env.VERCEL === '1' || process.env.VERCEL;
-const authFolder = isVercel ? '/tmp/baileys_auth_info' : path.join(process.cwd(), 'baileys_auth_info');
+const AUTH_FOLDER = path.join(process.cwd(), 'baileys_auth_info');
 
-let botStarting = false;
+let sock: WASocket | null = null;
+let isStarting = false;
+let reconnectAttempts = 0;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+const MAX_RECONNECT_ATTEMPTS = 10;
+const BASE_RECONNECT_DELAY = 2000;
 
-export function getCreds() {
-    const credsPath = path.join(authFolder, 'creds.json');
-    if (fs.existsSync(credsPath)) {
-        return fs.readFileSync(credsPath, 'utf8');
-    }
-    return null;
+function getReconnectDelay(): number {
+  const delay = Math.min(BASE_RECONNECT_DELAY * Math.pow(2, reconnectAttempts), 60000);
+  return delay + Math.random() * 1000;
 }
 
-export function setCreds(credsData: string) {
-    if (!fs.existsSync(authFolder)) {
-        fs.mkdirSync(authFolder, { recursive: true });
-    }
-    fs.writeFileSync(path.join(authFolder, 'creds.json'), credsData);
-}
-
-export async function startWhatsAppBot() {
-  if (sock || botStarting) return;
-  botStarting = true;
+function validateAuthFolder(): boolean {
   try {
-    const { state, saveCreds } = await useMultiFileAuthState(authFolder);
-
-  const { version, isLatest } = await fetchLatestBaileysVersion();
-  
-  emitLog(`using WA v${version.join('.')}, isLatest: ${isLatest}`, 'info');
-
-  sock = makeWASocket({
-    version,
-    logger: pino({ level: 'silent' }) as any,
-    printQRInTerminal: false,
-    auth: state,
-    generateHighQualityLinkPreview: true,
-  });
-
-  sock.ev.on('creds.update', (creds) => {
-      saveCreds();
-      // On update, if in Vercel, emit the creds so the client can save them
-      if (isVercel) {
-          const credsString = getCreds();
-          if (credsString) {
-              const io = getIo();
-              if (io) io.emit('creds_update', credsString);
-          }
-      }
-  });
-
-  sock.ev.on('connection.update', async (update: any) => {
-    const { connection, lastDisconnect, qr } = update;
-    
-    if (qr) {
-      emitLog('QR Code received, waiting for scan...', 'info');
-      try {
-        const qrDataURL = await QRCode.toDataURL(qr);
-        emitQR(qrDataURL);
-        emitStatus('qr_ready');
-      } catch (err) {
-        emitLog('Failed to generate QR code', 'error');
-      }
-    }
-
-    if (connection === 'close') {
-      const shouldReconnect = (lastDisconnect?.error as any)?.output?.statusCode !== DisconnectReason.loggedOut;
-      emitLog(`Connection closed. Reconnecting: ${shouldReconnect}`, 'warn');
-      emitStatus('disconnected');
-      
-      if (shouldReconnect) {
-        sock = null;
-        setTimeout(startWhatsAppBot, 2000);
-      } else {
-        emitLog('Logged out. Generating new QR...', 'error');
-        if (fs.existsSync(authFolder)) {
-            fs.rmSync(authFolder, { recursive: true, force: true });
-        }
-        if (isVercel) {
-            const io = getIo();
-            if (io) io.emit('creds_update', '');
-        }
-        sock = null;
-        setTimeout(startWhatsAppBot, 2000);
-      }
-    } else if (connection === 'open') {
-      emitLog('WhatsApp connected successfully!', 'info');
-      emitStatus('connected');
-      emitQR('');
-      if (isVercel) {
-          const credsString = getCreds();
-          if (credsString) {
-              const io = getIo();
-              if (io) io.emit('creds_update', credsString);
-          }
-      }
-    }
-  });
-
-  sock.ev.on('messages.upsert', async (m: any) => {
-    if (m.type === 'notify') {
-      for (const msg of m.messages) {
-        if (!msg.key.fromMe) {
-          await handleIncomingMessage(sock, msg);
-        }
-      }
-    }
-  });
-
-  botStarting = false;
-} catch (err) {
-  botStarting = false;
-  emitLog('Failed to start WhatsApp bot: ' + String(err), 'error');
+    const credsPath = path.join(AUTH_FOLDER, 'creds.json');
+    if (!fs.existsSync(credsPath)) return true;
+    const data = fs.readFileSync(credsPath, 'utf8');
+    JSON.parse(data);
+    return true;
+  } catch (e) {
+    emitLog('⚠️ Corrupted auth files detected. Cleaning up...', 'warning');
+    try {
+      fs.rmSync(AUTH_FOLDER, { recursive: true, force: true });
+    } catch (_) {}
+    return true;
+  }
 }
+
+function destroySocket() {
+  if (sock) {
+    try {
+      sock.ev.removeAllListeners('connection.update');
+      sock.ev.removeAllListeners('creds.update');
+      sock.ev.removeAllListeners('messages.upsert');
+      sock.ws.close();
+    } catch (_) {}
+    sock = null;
+  }
+}
+
+export async function startWhatsAppBot(): Promise<void> {
+  if (isStarting || sock) {
+    emitLog('Bot already running or starting, skipping duplicate init.', 'system');
+    return;
+  }
+
+  isStarting = true;
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+
+  try {
+    validateAuthFolder();
+    if (!fs.existsSync(AUTH_FOLDER)) fs.mkdirSync(AUTH_FOLDER, { recursive: true });
+
+    const { state, saveCreds } = await useMultiFileAuthState(AUTH_FOLDER);
+    const { version, isLatest } = await fetchLatestBaileysVersion();
+
+    emitLog(`🔌 Connecting with WA v${version.join('.')}, isLatest: ${isLatest}`, 'whatsapp');
+    emitStatus('connecting');
+
+    sock = makeWASocket({
+      version,
+      logger: pino({ level: 'silent' }) as any,
+      printQRInTerminal: false,
+      auth: state,
+      generateHighQualityLinkPreview: true,
+      markOnlineOnConnect: true,
+    });
+
+    sock.ev.on('creds.update', saveCreds);
+
+    sock.ev.on('connection.update', async (update) => {
+      const { connection, lastDisconnect, qr } = update as any;
+
+      if (qr) {
+        emitLog('📱 QR Code generated — scan with WhatsApp', 'whatsapp');
+        try {
+          const qrDataURL = await QRCode.toDataURL(qr, { width: 300, margin: 2 });
+          emitQR(qrDataURL);
+          emitStatus('qr_ready');
+        } catch (err: any) {
+          emitLog(`QR generation failed: ${err.message}`, 'error');
+        }
+      }
+
+      if (connection === 'close') {
+        const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
+        const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+
+        emitLog(`🔴 Connection closed (code: ${statusCode || 'unknown'}). Will reconnect: ${shouldReconnect}`, 'warning');
+        emitStatus('disconnected');
+        emitQR('');
+
+        destroySocket();
+        isStarting = false;
+
+        if (shouldReconnect) {
+          if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+            reconnectAttempts++;
+            const delay = getReconnectDelay();
+            emitLog(`🔄 Reconnect attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in ${Math.round(delay / 1000)}s...`, 'system');
+            reconnectTimer = setTimeout(startWhatsAppBot, delay);
+          } else {
+            emitLog('❌ Max reconnect attempts reached. Please restart manually.', 'error');
+            emitStatus('failed');
+          }
+        } else {
+          emitLog('🚪 Logged out by user. Clearing session...', 'warning');
+          try { fs.rmSync(AUTH_FOLDER, { recursive: true, force: true }); } catch (_) {}
+          reconnectAttempts = 0;
+          reconnectTimer = setTimeout(startWhatsAppBot, 3000);
+        }
+      } else if (connection === 'open') {
+        reconnectAttempts = 0;
+        const user = (sock as any)?.user;
+        const phoneNumber = user?.id?.split(':')[0] || user?.id?.split('@')[0] || 'Unknown';
+        const loginTime = new Date().toISOString();
+
+        setConnectedNumber(phoneNumber);
+        setLastLoginTime(loginTime);
+        emitLog(`✅ WhatsApp connected! Number: ${phoneNumber}`, 'success');
+        emitStatus('connected');
+        emitQR('');
+      }
+    });
+
+    sock.ev.on('messages.upsert', async (m: any) => {
+      if (m.type === 'notify') {
+        for (const msg of m.messages) {
+          if (!msg.key.fromMe) {
+            await handleIncomingMessage(sock!, msg);
+          }
+        }
+      }
+    });
+
+    isStarting = false;
+  } catch (err: any) {
+    isStarting = false;
+    destroySocket();
+    emitLog(`❌ Failed to start WhatsApp bot: ${err.message}`, 'error');
+
+    if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+      reconnectAttempts++;
+      const delay = getReconnectDelay();
+      emitLog(`🔄 Retrying in ${Math.round(delay / 1000)}s...`, 'system');
+      reconnectTimer = setTimeout(startWhatsAppBot, delay);
+    }
+  }
 }
 
 export function stopWhatsAppBot() {
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  reconnectAttempts = 0;
   if (sock) {
-    sock.logout();
-    sock = null;
+    try { sock.logout(); } catch (_) {}
+    destroySocket();
   }
+  emitLog('🛑 WhatsApp bot stopped.', 'system');
+}
+
+export function resetSession() {
+  stopWhatsAppBot();
+  try { if (fs.existsSync(AUTH_FOLDER)) fs.rmSync(AUTH_FOLDER, { recursive: true, force: true }); } catch (_) {}
+  emitLog('🗑️ Session cleared. Restarting...', 'warning');
+  emitStatus('disconnected');
+  setTimeout(startWhatsAppBot, 1000);
+}
+
+export function getSocketState(): string {
+  if (!sock) return 'disconnected';
+  try { return (sock.ws as any)?.readyState === 1 ? 'connected' : 'connecting'; } catch (_) { return 'unknown'; }
 }
