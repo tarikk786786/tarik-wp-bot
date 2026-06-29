@@ -2,6 +2,7 @@ import { WAMessage, WASocket } from '@whiskeysockets/baileys';
 import { emitLog } from '../services/socket.js';
 import { processMessageWithGemini } from '../services/gemini.js';
 import { getConfig } from '../services/config.js';
+import { isUserActive } from './index.js';
 
 export async function handleIncomingMessage(sock: WASocket, msg: WAMessage) {
   try {
@@ -9,6 +10,11 @@ export async function handleIncomingMessage(sock: WASocket, msg: WAMessage) {
 
     const config = getConfig();
     if (!config.botEnabled) return;
+    
+    if (config.smartAutoReply && isUserActive()) {
+        emitLog(`Skipping reply to ${msg.key.remoteJid?.split('@')[0]} because user is currently active.`, 'info');
+        return;
+    }
 
     const jid = msg.key.remoteJid;
     if (!jid || jid === 'status@broadcast') return;

@@ -13,6 +13,7 @@ export interface BotConfig {
     activeHoursEnd: string; // "HH:MM"
     replyMood: string;
     replyLanguage: string;
+    smartAutoReply: boolean;
 }
 
 const configPath = path.join(process.cwd(), 'bot_config.json');
@@ -28,7 +29,8 @@ const defaultConfig: BotConfig = {
     activeHoursStart: "00:00",
     activeHoursEnd: "23:59",
     replyMood: "Helpful Assistant",
-    replyLanguage: "Auto-detect"
+    replyLanguage: "Auto-detect",
+    smartAutoReply: false
 };
 
 export function getConfig(): BotConfig {

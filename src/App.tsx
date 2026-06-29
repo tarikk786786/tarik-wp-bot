@@ -20,6 +20,7 @@ interface BotConfig {
     activeHoursEnd: string;
     replyMood: string;
     replyLanguage: string;
+    smartAutoReply: boolean;
 }
 
 const GODMODE_PROMPT = `# 𝔾𝟘𝔻𝕄𝟘𝔻𝟛 // ULTIMATE JAILBREAK v∞.0
@@ -469,6 +470,26 @@ export default function App() {
                             <div className="w-14 h-7 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-emerald-500"></div>
                             <span className="ml-3 text-sm font-medium text-slate-300">
                                 {config.botEnabled ? 'Active' : 'Disabled'}
+                            </span>
+                        </label>
+                     </section>
+
+                     {/* SMART OFFLINE MODE */}
+                     <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-sm flex items-center justify-between">
+                        <div>
+                            <h3 className="text-lg font-bold text-slate-200">Smart Offline Mode (Replay When Offline)</h3>
+                            <p className="text-sm text-slate-400 mt-1">When active, the bot will NOT reply if you have recently replied to a chat yourself. It only auto-replies when you are away.</p>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                            <input 
+                                type="checkbox" 
+                                className="sr-only peer"
+                                checked={config.smartAutoReply}
+                                onChange={e => setConfig({...config, smartAutoReply: e.target.checked})}
+                            />
+                            <div className="w-14 h-7 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-emerald-500"></div>
+                            <span className="ml-3 text-sm font-medium text-slate-300">
+                                {config.smartAutoReply ? 'Active' : 'Disabled'}
                             </span>
                         </label>
                      </section>

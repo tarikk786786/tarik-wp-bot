@@ -11,6 +11,11 @@ const isStateless = process.env.VERCEL === '1' || process.env.VERCEL === 'true' 
 const authFolder = isStateless ? '/tmp/baileys_auth_info' : path.join(process.cwd(), 'baileys_auth_info');
 
 let botStarting = false;
+let lastUserActivityTime = 0;
+
+export function isUserActive() {
+    return Date.now() - lastUserActivityTime < 5 * 60 * 1000;
+}
 
 export function getCreds() {
     if (!fs.existsSync(authFolder)) return null;
@@ -133,6 +138,8 @@ export async function startWhatsAppBot() {
       for (const msg of m.messages) {
         if (!msg.key.fromMe) {
           await handleIncomingMessage(sock, msg);
+        } else {
+          lastUserActivityTime = Date.now();
         }
       }
     }
