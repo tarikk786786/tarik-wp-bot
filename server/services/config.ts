@@ -24,8 +24,8 @@ export interface BotConfig {
   tarikBhaiMode: boolean;
   godMode: boolean;
 }
-
-const configPath = path.join(process.cwd(), 'bot_config.json');
+import os from 'os';
+const configPath = path.join(os.tmpdir(), 'bot_config.json');
 
 const defaultConfig: BotConfig = {
   botEnabled: true,

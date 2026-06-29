@@ -240,20 +240,7 @@ export default function App() {
     return true;
   });
 
-  if (platform === 'vercel') {
-    return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-center z-50 fixed inset-0">
-        <AlertTriangle className="w-24 h-24 text-rose-500 mb-6 animate-pulse" />
-        <h1 className="text-4xl font-bold text-white mb-4">⚠️ Vercel Serverless Detected</h1>
-        <div className="bg-slate-900/50 p-8 rounded-2xl border border-rose-500/30 max-w-2xl text-lg text-slate-300 leading-relaxed shadow-[0_0_50px_-12px_rgba(244,63,94,0.2)]">
-          <p className="mb-4 text-rose-400 font-semibold">Persistent WhatsApp connections are NOT supported on Vercel Serverless.</p>
-          <p className="mb-4">Baileys requires a persistent WebSocket connection to WhatsApp servers.</p>
-          <p className="mb-4">Vercel Functions have a maximum execution time of 10 seconds (Hobby) or 60 seconds (Pro), after which the connection is terminated. This makes it fundamentally incompatible.</p>
-          <p className="text-white font-medium">Please deploy to: Render, Railway, Fly.io, Docker, VPS, PM2, or any platform that supports long-running Node.js processes.</p>
-        </div>
-      </div>
-    );
-  }
+
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 selection:bg-indigo-500/30 flex flex-col">

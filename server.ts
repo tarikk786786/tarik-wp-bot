@@ -47,12 +47,7 @@ async function setupFrontend() {
 async function boot() {
   await setupFrontend();
 
-  if (IS_VERCEL) {
-    // On Vercel, do NOT start the WhatsApp bot.
-    // The frontend will detect platform='vercel' and show a warning.
-    console.log('[SERVER] Running on Vercel Serverless — WhatsApp bot DISABLED.');
-    return;
-  }
+
 
   httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`[SERVER] Running on port ${PORT}`);

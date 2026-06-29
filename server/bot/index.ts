@@ -5,8 +5,8 @@ import { emitStatus, emitLog, emitQR, setConnectedNumber, setLastLoginTime } fro
 import { handleIncomingMessage } from './handler.js';
 import fs from 'fs';
 import path from 'path';
-
-const AUTH_FOLDER = path.join(process.cwd(), 'baileys_auth_info');
+import os from 'os';
+const AUTH_FOLDER = path.join(os.tmpdir(), 'baileys_auth_info');
 
 let sock: WASocket | null = null;
 let isStarting = false;
