@@ -477,7 +477,7 @@ export default function App() {
                      {/* SMART OFFLINE MODE */}
                      <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-sm flex items-center justify-between">
                         <div>
-                            <h3 className="text-lg font-bold text-slate-200">Smart Offline Mode (Replay When Offline)</h3>
+                            <h3 className="text-lg font-bold text-slate-200">Smart Offline Mode (Reply When Offline)</h3>
                             <p className="text-sm text-slate-400 mt-1">When active, the bot will NOT reply if you have recently replied to a chat yourself. It only auto-replies when you are away.</p>
                         </div>
                         <label className="relative inline-flex items-center cursor-pointer">

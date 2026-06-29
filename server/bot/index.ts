@@ -1,4 +1,4 @@
-import { makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
+import { makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion, Browsers } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import QRCode from 'qrcode';
 import { emitStatus, emitLog, emitQR, getIo } from '../services/socket.js';
@@ -60,7 +60,7 @@ export async function startWhatsAppBot() {
     logger: pino({ level: 'silent' }) as any,
     printQRInTerminal: false,
     auth: state,
-    browser: ['Tarik Bhai AI', 'Chrome', '1.0.0'],
+    browser: Browsers.macOS('Desktop'),
     markOnlineOnConnect: false,
     syncFullHistory: false,
     generateHighQualityLinkPreview: true,
@@ -100,8 +100,9 @@ export async function startWhatsAppBot() {
     }
 
     if (connection === 'close') {
-      const shouldReconnect = (lastDisconnect?.error as any)?.output?.statusCode !== DisconnectReason.loggedOut;
-      emitLog(`Connection closed. Reconnecting: ${shouldReconnect}`, 'warn');
+      const error = lastDisconnect?.error as any;
+      const shouldReconnect = error?.output?.statusCode !== DisconnectReason.loggedOut;
+      emitLog(`Connection closed. Reconnecting: ${shouldReconnect}. Reason: ${error?.message || 'unknown'}`, 'warn');
       emitStatus('disconnected');
       
       if (shouldReconnect) {

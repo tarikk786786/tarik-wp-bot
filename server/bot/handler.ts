@@ -47,6 +47,17 @@ export async function handleIncomingMessage(sock: WASocket, msg: WAMessage) {
         }
     }
 
+    // Smart Auto Reply - delay before replying to give user a chance to reply themselves
+    if (config.smartAutoReply) {
+        emitLog(`Smart mode active. Waiting 10s before replying to ${senderNumber}...`, 'info');
+        await new Promise(resolve => setTimeout(resolve, 10000));
+        // Check again if user became active during the delay
+        if (isUserActive()) {
+            emitLog(`Skipping reply to ${senderNumber} because user became active.`, 'info');
+            return;
+        }
+    }
+
     // Extract text from message
     const textMessage = msg.message.conversation || 
                         msg.message.extendedTextMessage?.text || 
