@@ -3,7 +3,7 @@ import { stopWhatsAppBot, startWhatsAppBot, getCreds, setCreds } from '../bot/in
 import { startTelegramBot, stopTelegramBot } from '../bot/telegram.js';
 import fs from 'fs';
 import path from 'path';
-import { emitLog, emitStatus, getCurrentStatus, getCurrentQr } from '../services/socket.js';
+import { emitLog, emitStatus, getCurrentStatus, getCurrentQr, getCurrentTgStatus, getCurrentTgQr } from '../services/socket.js';
 import { getConfig, saveConfig } from '../services/config.js';
 import { clearAllMemory } from '../services/memory.js';
 
@@ -67,6 +67,8 @@ router.get('/status', async (req, res) => {
   }
   res.json({ 
       status: getCurrentStatus(), 
+      tgStatus: getCurrentTgStatus(),
+      tgQr: getCurrentTgQr(),
       qr: getCurrentQr(),
       needsCreds: isStateless ? !getCreds() : false,
       creds: isStateless ? getCreds() : null
@@ -137,6 +139,24 @@ router.post('/bot/logout', (req, res) => {
   }, 1000);
   
   res.json({ message: 'Logged out and restarting...' });
+});
+
+router.post('/bot/tg-logout', (req, res) => {
+  stopTelegramBot();
+  const isStateless = process.env.VERCEL === '1' || process.env.VERCEL === 'true' || process.env.RENDER === '1' || process.env.RENDER === 'true' || process.env.RENDER;
+  const tgAuthFolder = isStateless ? '/tmp/tg_auth_info' : path.join(process.cwd(), 'tg_auth_info');
+  if (typeof global !== 'undefined' && (global as any).localStorage) {
+    (global as any).localStorage.clear();
+  } else if (fs.existsSync(tgAuthFolder)) {
+    fs.rmSync(tgAuthFolder, { recursive: true, force: true });
+  }
+  emitLog('Telegram logged out and cleared auth data', 'warn');
+  
+  setTimeout(() => {
+    startTelegramBot();
+  }, 1000);
+  
+  res.json({ message: 'Logged out Telegram...' });
 });
 
 router.post('/bot/memory/clear', (req, res) => {

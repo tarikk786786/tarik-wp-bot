@@ -1,11 +1,11 @@
-import TelegramBot from 'node-telegram-bot-api';
+import { TelegramClient } from 'telegram';
 import { emitLog } from '../services/socket.js';
 import { getTelegramBot } from './telegram.js';
 
 interface TgQueueItem {
-    chatId: number;
+    chatId: string;
     text: string;
-    options?: TelegramBot.SendMessageOptions;
+    options?: any;
     retries: number;
     resolve: (value: any) => void;
     reject: (reason?: any) => void;
@@ -28,7 +28,7 @@ class TelegramQueue {
         };
     }
 
-    public async enqueue(chatId: number, text: string, options?: TelegramBot.SendMessageOptions): Promise<any> {
+    public async enqueue(chatId: string, text: string, options?: any): Promise<any> {
         return new Promise((resolve, reject) => {
             this.queue.push({
                 chatId,
@@ -47,8 +47,8 @@ class TelegramQueue {
         this.isProcessing = true;
 
         while (this.queue.length > 0) {
-            const bot = getTelegramBot();
-            if (!bot) {
+            const client: TelegramClient | null = getTelegramBot();
+            if (!client) {
                 emitLog(`Telegram bot not available, waiting...`, 'warn');
                 await this.delay(3000);
                 continue;
@@ -69,12 +69,10 @@ class TelegramQueue {
                 const delayMs = this.limits.baseDelayMs + Math.random() * this.limits.randomDelayMs;
                 await this.delay(delayMs);
 
-                try {
-                    await bot.sendChatAction(item.chatId, 'typing');
-                    await this.delay(1000 + Math.random() * 1000);
-                } catch (e) {}
-
-                const result = await bot.sendMessage(item.chatId, item.text, item.options);
+                const result = await client.sendMessage(item.chatId, {
+                    message: item.text,
+                    replyTo: item.options?.replyTo
+                });
                 
                 this.messagesSentLastMinute++;
                 this.messagesSentLastHour++;

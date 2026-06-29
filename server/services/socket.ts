@@ -2,7 +2,9 @@ import { Server } from 'socket.io';
 
 let io: Server | null = null;
 let currentStatus = 'initializing';
+let currentTgStatus = 'disconnected';
 let currentQr = '';
+let currentTgQr = '';
 const logs: any[] = [];
 
 export function initSocket(serverIo: Server) {
@@ -13,7 +15,9 @@ export function initSocket(serverIo: Server) {
     
     // Send current state
     socket.emit('status', { status: currentStatus });
+    socket.emit('tg_status', { status: currentTgStatus });
     if (currentQr) socket.emit('qr', currentQr);
+    if (currentTgQr) socket.emit('tg_qr', currentTgQr);
     
     // Send recent logs
     logs.forEach(log => socket.emit('log', log));
@@ -21,7 +25,9 @@ export function initSocket(serverIo: Server) {
 }
 
 export function getCurrentStatus() { return currentStatus; }
+export function getCurrentTgStatus() { return currentTgStatus; }
 export function getCurrentQr() { return currentQr; }
+export function getCurrentTgQr() { return currentTgQr; }
 
 export function getIo() {
   return io;
@@ -31,6 +37,13 @@ export function emitStatus(status: string, data?: any) {
   currentStatus = status;
   if (io) {
     io.emit('status', { status, data });
+  }
+}
+
+export function emitTgStatus(status: string, data?: any) {
+  currentTgStatus = status;
+  if (io) {
+    io.emit('tg_status', { status, data });
   }
 }
 
@@ -48,5 +61,12 @@ export function emitQR(qr: string) {
   currentQr = qr;
   if (io) {
     io.emit('qr', qr);
+  }
+}
+
+export function emitTgQR(qr: string) {
+  currentTgQr = qr;
+  if (io) {
+    io.emit('tg_qr', qr);
   }
 }

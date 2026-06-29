@@ -1,169 +1,239 @@
-import TelegramBot from 'node-telegram-bot-api';
-import { emitLog } from '../services/socket.js';
+import { TelegramClient } from "telegram";
+import { StoreSession } from "telegram/sessions/index.js";
+import { LocalStorage } from "node-localstorage";
+import { NewMessage } from "telegram/events/index.js";
+import { emitLog, emitTgStatus, emitTgQR, getIo } from '../services/socket.js';
 import { getConfig } from '../services/config.js';
 import { processMessageWithGemini } from '../services/gemini.js';
 import { telegramQueue } from './telegramQueue.js';
+import fs from 'fs';
+import path from 'path';
 
-let bot: TelegramBot | null = null;
+import QRCode from 'qrcode';
+
+let client: TelegramClient | null = null;
 const processedMessages = new Set<number>();
 const MAX_PROCESSED = 1000;
 
-async function downloadTelegramMedia(botInstance: TelegramBot, msg: TelegramBot.Message): Promise<{ data: string, mimeType: string } | undefined> {
-    let fileId: string | undefined;
-    let mimeType: string | undefined;
+const apiId = 2040;
+const apiHash = "b18441a1ff607e10a989891a5462e627";
 
-    if (msg.photo && msg.photo.length > 0) {
-        const photo = msg.photo[msg.photo.length - 1]; // highest res
-        fileId = photo.file_id;
-        mimeType = 'image/jpeg';
-    } else if (msg.document) {
-        fileId = msg.document.file_id;
-        mimeType = msg.document.mime_type;
-    } else if (msg.audio) {
-        fileId = msg.audio.file_id;
-        mimeType = msg.audio.mime_type;
-    } else if (msg.video) {
-        fileId = msg.video.file_id;
-        mimeType = msg.video.mime_type;
-    }
+const isStateless = process.env.VERCEL === '1' || process.env.RENDER === '1' || process.env.RENDER;
+const tgAuthFolder = isStateless ? '/tmp/tg_auth_info' : path.join(process.cwd(), 'tg_auth_info');
 
-    if (!fileId) return undefined;
+export function getTgCreds(): boolean {
+    return fs.existsSync(tgAuthFolder) && fs.readdirSync(tgAuthFolder).length > 0;
+}
 
-    try {
-        const link = await botInstance.getFileLink(fileId);
-        const response = await fetch(link);
-        const arrayBuffer = await response.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-        return {
-            data: buffer.toString('base64'),
-            mimeType: (mimeType || 'application/octet-stream').split(';')[0]
-        };
-    } catch (error) {
-        emitLog('Error downloading Telegram media', 'error');
-        return undefined;
+export function clearTgCreds() {
+    if (typeof global !== 'undefined' && (global as any).localStorage) {
+        (global as any).localStorage.clear();
+    } else if (fs.existsSync(tgAuthFolder)) {
+        fs.rmSync(tgAuthFolder, { recursive: true, force: true });
     }
 }
 
-export function startTelegramBot() {
+// Setup global localStorage for gramjs StoreSession
+if (typeof global !== 'undefined') {
+    (global as any).localStorage = new LocalStorage(tgAuthFolder);
+}
+
+export async function startTelegramBot() {
     const config = getConfig();
-    if (!config.telegramEnabled || !config.telegramBotToken) {
-        emitLog('Telegram bot is disabled or missing token.', 'info');
+    
+    if (!config.telegramEnabled) {
+        emitLog('Telegram bot is disabled.', 'info');
+        emitTgStatus('disconnected');
         return;
     }
 
-    if (bot) {
-        emitLog('Telegram bot is already running.', 'info');
+    if (client) {
+        emitLog('Telegram client is already running.', 'info');
         return;
     }
 
     try {
-        bot = new TelegramBot(config.telegramBotToken, { polling: true });
-
-        emitLog('Telegram bot started successfully!', 'info');
-
-        bot.on('message', async (msg) => {
-            try {
-                if (!msg.message_id) return;
-
-                if (processedMessages.has(msg.message_id)) {
-                    return; // Ignore duplicate
-                }
-                
-                processedMessages.add(msg.message_id);
-                if (processedMessages.size > MAX_PROCESSED) {
-                    const toRemove = Array.from(processedMessages).slice(0, 100);
-                    toRemove.forEach(id => processedMessages.delete(id));
-                }
-
-                const currentConfig = getConfig();
-                if (!currentConfig.telegramEnabled) return;
-
-                const chatId = msg.chat.id;
-                const isGroup = msg.chat.type === 'group' || msg.chat.type === 'supergroup';
-                
-                if (isGroup && !currentConfig.replyToGroups) return;
-                if (!isGroup && !currentConfig.replyToPrivate) return;
-
-                const senderNumber = msg.from?.username || msg.from?.id.toString();
-                if (currentConfig.allowedNumbers.length > 0 && !currentConfig.allowedNumbers.includes(senderNumber!)) {
-                    return;
-                }
-                if (currentConfig.blockedNumbers.includes(senderNumber!)) {
-                    return;
-                }
-
-                // Check active hours
-                const now = new Date();
-                const currentHour = now.getHours();
-                const currentMinute = now.getMinutes();
-                const [startHour, startMin] = currentConfig.activeHoursStart.split(':').map(Number);
-                const [endHour, endMin] = currentConfig.activeHoursEnd.split(':').map(Number);
-                
-                const currentMins = currentHour * 60 + currentMinute;
-                const startMins = startHour * 60 + startMin;
-                const endMins = endHour * 60 + endMin;
-
-                if (startMins < endMins) {
-                    if (currentMins < startMins || currentMins > endMins) return;
-                } else {
-                    if (currentMins < startMins && currentMins > endMins) return;
-                }
-
-                const textMessage = msg.text || msg.caption;
-                
-                const isMedia = msg.photo || msg.video || msg.audio || msg.document || msg.sticker;
-                
-                if (!textMessage && !isMedia) {
-                    return;
-                }
-
-                emitLog(`Received Telegram message from ${senderNumber}: ${textMessage || '[Media]'}`, 'info');
-
-                if (currentConfig.replyDelayMs > 0) {
-                    await new Promise(resolve => setTimeout(resolve, currentConfig.replyDelayMs));
-                }
-
-                // Prepare instruction for Gemini
-                const finalInstruction = `${currentConfig.systemInstruction}\n\nStrict Constraints:\n- Mood/Persona: ${currentConfig.replyMood}\n- Language: ${currentConfig.replyLanguage === 'Auto-detect' ? 'Respond in the language the user speaks to you.' : 'You MUST respond in ' + currentConfig.replyLanguage + '.'}`;
-                
-                // Download media if present
-                let overrideMedia;
-                if (isMedia && bot) {
-                    overrideMedia = await downloadTelegramMedia(bot, msg);
-                }
-                
-                const dummyWaMessage = {};
-                
-                const replyText = await processMessageWithGemini(`tg-${chatId}`, textMessage || '', dummyWaMessage, finalInstruction, overrideMedia);
-
-                if (replyText) {
-                    await telegramQueue.enqueue(chatId, replyText, { reply_to_message_id: msg.message_id });
-                    emitLog(`Replied to ${senderNumber} on Telegram via Queue`, 'info');
-                }
-
-            } catch (error: any) {
-                emitLog(`Error handling Telegram message: ${error.message}`, 'error');
-            }
+        const storeSession = new StoreSession("");
+        
+        client = new TelegramClient(storeSession, apiId, apiHash, {
+            connectionRetries: 5,
         });
 
-        bot.on('polling_error', (error) => {
-            emitLog(`Telegram polling error: ${error.message}`, 'error');
-        });
+        await client.connect();
+        const isAuth = await client.checkAuthorization();
+
+        if (!isAuth) {
+            emitLog('Telegram requires authentication. Generating QR code...', 'info');
+            emitTgStatus('awaiting_auth');
+            
+            client.signInUserWithQrCode(
+                { apiId, apiHash },
+                {
+                    onError: async (err) => {
+                        emitLog(`Telegram QR Auth Error: ${err.message}`, 'error');
+                        emitTgStatus('disconnected', err.message);
+                        return true;
+                    },
+                    qrCode: async (qr) => {
+                        const tokenString = qr.token.toString('base64url');
+                        const qrUrl = `tg://login?token=${tokenString}`;
+                        try {
+                            const qrDataURL = await QRCode.toDataURL(qrUrl);
+                            emitTgQR(qrDataURL);
+                            emitLog('Telegram QR code generated.', 'info');
+                        } catch(e) {
+                            emitLog('Failed to generate Telegram QR', 'error');
+                        }
+                    },
+                    password: async (hint) => {
+                        const cfg = getConfig();
+                        if (cfg.telegramPassword) {
+                            emitLog('Providing Telegram 2FA password...', 'info');
+                            return cfg.telegramPassword;
+                        }
+                        emitLog(`Telegram requires 2FA Password (Hint: ${hint || 'none'}). Please configure in Settings.`, 'warn');
+                        throw new Error('2FA password required but not configured.');
+                    }
+                }
+            ).then(() => {
+                emitLog('Telegram logged in successfully via QR!', 'info');
+                emitTgQR('');
+                emitTgStatus('connected');
+                setupMessageHandler();
+            }).catch(err => {
+                emitLog(`Telegram Auth failed: ${err.message}`, 'error');
+                emitTgStatus('disconnected', err.message);
+                client = null;
+            });
+
+        } else {
+            emitLog('Connecting Telegram client...', 'info');
+            emitLog('Telegram bot started successfully!', 'info');
+            emitTgStatus('connected');
+            setupMessageHandler();
+        }
 
     } catch (err: any) {
-        emitLog(`Failed to start Telegram bot: ${err.message}`, 'error');
-        bot = null;
+        emitLog(`Failed to start Telegram client: ${err.message}`, 'error');
+        emitTgStatus('disconnected', err.message);
+        client = null;
     }
 }
 
-export function stopTelegramBot() {
-    if (bot) {
-        bot.stopPolling();
-        bot = null;
+function setupMessageHandler() {
+    if (!client) return;
+
+    client.addEventHandler(async (event: any) => {
+        try {
+            const msg = event.message;
+            if (!msg) return;
+
+            const messageId = msg.id;
+            if (processedMessages.has(messageId)) {
+                return; // Ignore duplicate
+            }
+            
+            processedMessages.add(messageId);
+            if (processedMessages.size > MAX_PROCESSED) {
+                const toRemove = Array.from(processedMessages).slice(0, 100);
+                toRemove.forEach(id => processedMessages.delete(id));
+            }
+
+            const currentConfig = getConfig();
+            if (!currentConfig.telegramEnabled) return;
+
+            const isGroup = msg.isGroup;
+            if (isGroup && !currentConfig.replyToGroups) return;
+            if (!isGroup && !currentConfig.replyToPrivate) return;
+
+            const sender = await msg.getSender();
+            const senderNumber = sender?.username || sender?.id?.toString() || 'unknown';
+            
+            if (currentConfig.allowedNumbers.length > 0 && !currentConfig.allowedNumbers.includes(senderNumber)) {
+                return;
+            }
+            if (currentConfig.blockedNumbers.includes(senderNumber)) {
+                return;
+            }
+
+            // Check active hours
+            const now = new Date();
+            const currentHour = now.getHours();
+            const currentMinute = now.getMinutes();
+            const [startHour, startMin] = currentConfig.activeHoursStart.split(':').map(Number);
+            const [endHour, endMin] = currentConfig.activeHoursEnd.split(':').map(Number);
+            
+            const currentMins = currentHour * 60 + currentMinute;
+            const startMins = startHour * 60 + startMin;
+            const endMins = endHour * 60 + endMin;
+
+            if (startMins < endMins) {
+                if (currentMins < startMins || currentMins > endMins) return;
+            } else {
+                if (currentMins < startMins && currentMins > endMins) return;
+            }
+
+            const textMessage = msg.text || msg.message;
+            const isMedia = !!msg.media;
+            
+            if (!textMessage && !isMedia) {
+                return;
+            }
+
+            emitLog(`Received Telegram message from ${senderNumber}: ${textMessage || '[Media]'}`, 'info');
+
+            if (currentConfig.replyDelayMs > 0) {
+                await new Promise(resolve => setTimeout(resolve, currentConfig.replyDelayMs));
+            }
+
+            const finalInstruction = `${currentConfig.systemInstruction}\n\nStrict Constraints:\n- Mood/Persona: ${currentConfig.replyMood}\n- Language: ${currentConfig.replyLanguage === 'Auto-detect' ? 'Respond in the language the user speaks to you.' : 'You MUST respond in ' + currentConfig.replyLanguage + '.'}`;
+            
+            let overrideMedia;
+            if (isMedia && client) {
+                try {
+                    const buffer = await client.downloadMedia(msg);
+                    if (buffer) {
+                        let mimeType = 'application/octet-stream';
+                        if (msg.photo) mimeType = 'image/jpeg';
+                        else if (msg.video) mimeType = 'video/mp4';
+                        else if (msg.audio) mimeType = 'audio/mp3';
+                        else if (msg.document) mimeType = msg.document.mimeType || mimeType;
+
+                        overrideMedia = {
+                            data: buffer.toString('base64'),
+                            mimeType
+                        };
+                    }
+                } catch (e) {
+                    emitLog('Error downloading Telegram media', 'error');
+                }
+            }
+            
+            const dummyWaMessage = {};
+            const chatId = msg.chatId.toString();
+            
+            const replyText = await processMessageWithGemini(`tg-${chatId}`, textMessage || '', dummyWaMessage, finalInstruction, overrideMedia);
+
+            if (replyText) {
+                await telegramQueue.enqueue(chatId, replyText, { replyTo: msg.id });
+                emitLog(`Replied to ${senderNumber} on Telegram via Queue`, 'info');
+            }
+
+        } catch (error: any) {
+            emitLog(`Error handling Telegram message: ${error.message}`, 'error');
+        }
+    }, new NewMessage({}));
+}
+
+export async function stopTelegramBot() {
+    if (client) {
+        await client.disconnect();
+        client = null;
         emitLog('Telegram bot stopped.', 'info');
+        emitTgStatus('disconnected');
     }
 }
 
 export function getTelegramBot() {
-    return bot;
+    return client;
 }

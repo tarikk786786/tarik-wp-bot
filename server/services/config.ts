@@ -5,6 +5,7 @@ export interface BotConfig {
     botEnabled: boolean;
     telegramEnabled: boolean;
     telegramBotToken: string;
+    telegramPassword?: string;
     systemInstruction: string;
     replyToPrivate: boolean;
     replyToGroups: boolean;

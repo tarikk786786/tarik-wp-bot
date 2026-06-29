@@ -12,6 +12,7 @@ interface BotConfig {
     botEnabled: boolean;
     telegramEnabled: boolean;
     telegramBotToken: string;
+    telegramPassword?: string;
     systemInstruction: string;
     replyToPrivate: boolean;
     replyToGroups: boolean;
@@ -131,7 +132,9 @@ Awaiting your command, User. What forbidden knowledge do you seek?`;
 export default function App() {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [status, setStatus] = useState<string>('initializing');
+  const [tgStatus, setTgStatus] = useState<string>('disconnected');
   const [qrCode, setQrCode] = useState<string>('');
+  const [tgQrCode, setTgQrCode] = useState<string>('');
   const [logs, setLogs] = useState<Log[]>([]);
   const logsEndRef = useRef<HTMLDivElement>(null);
   
@@ -168,7 +171,9 @@ export default function App() {
                 }
             }
             setStatus(data.status);
+            if (data.tgStatus) setTgStatus(data.tgStatus);
             if (data.qr) setQrCode(data.qr);
+            if (data.tgQr) setTgQrCode(data.tgQr);
         })
         .catch(console.error);
 
@@ -184,8 +189,16 @@ export default function App() {
       setStatus(data.status);
     });
 
+    s.on('tg_status', (data) => {
+      setTgStatus(data.status);
+    });
+
     s.on('qr', (qr) => {
       setQrCode(qr);
+    });
+
+    s.on('tg_qr', (qr) => {
+      setTgQrCode(qr);
     });
 
     s.on('log', (log: Log) => {
@@ -232,8 +245,15 @@ export default function App() {
                 if (prev !== data.status && data.status) return data.status;
                 return prev;
             });
+            setTgStatus(prev => {
+                if (prev !== data.tgStatus && data.tgStatus) return data.tgStatus;
+                return prev;
+            });
             if (data.qr) {
                 setQrCode(prev => prev !== data.qr ? data.qr : prev);
+            }
+            if (data.tgQr) {
+                setTgQrCode(prev => prev !== data.tgQr ? data.tgQr : prev);
             }
         } catch (e) {
             // Quietly ignore network errors during polling (e.g. server restart)
@@ -352,10 +372,11 @@ export default function App() {
             {/* Left Column: QR & Status */}
             <div className="flex flex-col gap-6">
               <div className="bg-slate-900/50 backdrop-blur-sm border border-slate-800 rounded-2xl p-8 flex flex-col items-center justify-center min-h-[340px] relative overflow-hidden shadow-lg">
-                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-indigo-500/50 to-transparent"></div>
+                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-emerald-500/50 to-transparent"></div>
+                <h3 className="absolute top-4 left-4 text-xs font-bold text-slate-500 tracking-wider">WHATSAPP</h3>
                 
                 {status === 'qr_ready' && qrCode ? (
-                  <div className="flex flex-col items-center gap-5 animate-in fade-in zoom-in duration-500">
+                  <div className="flex flex-col items-center gap-5 animate-in fade-in zoom-in duration-500 mt-4">
                     <div className="bg-white p-3 rounded-2xl shadow-xl ring-1 ring-slate-900/5">
                       <img src={qrCode} alt="WhatsApp QR Code" className="w-48 h-48 rounded-lg" />
                     </div>
@@ -367,7 +388,7 @@ export default function App() {
                     </div>
                   </div>
                 ) : status === 'connected' ? (
-                  <div className="flex flex-col items-center gap-4 text-emerald-400 animate-in fade-in duration-500">
+                  <div className="flex flex-col items-center gap-4 text-emerald-400 animate-in fade-in duration-500 mt-4">
                     <div className="bg-emerald-500/10 p-4 rounded-full border border-emerald-500/20">
                       <CheckCircle2 className="w-12 h-12" />
                     </div>
@@ -381,12 +402,56 @@ export default function App() {
                     </button>
                   </div>
                 ) : (
-                  <div className="flex flex-col items-center gap-4 text-slate-500 animate-pulse">
+                  <div className="flex flex-col items-center gap-4 text-slate-500 animate-pulse mt-4">
                     <Cpu className="w-10 h-10" />
                     <p className="font-medium tracking-wide text-sm">Initializing Core Services...</p>
                   </div>
                 )}
               </div>
+
+              {config?.telegramEnabled && (
+                <div className="bg-slate-900/50 backdrop-blur-sm border border-slate-800 rounded-2xl p-6 flex flex-col items-center justify-center relative overflow-hidden shadow-lg min-h-[340px]">
+                  <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-blue-500/50 to-transparent"></div>
+                  <h3 className="absolute top-4 left-4 text-xs font-bold text-slate-500 tracking-wider">TELEGRAM</h3>
+                  
+                  {tgStatus === 'awaiting_auth' && tgQrCode ? (
+                    <div className="flex flex-col items-center gap-5 animate-in fade-in zoom-in duration-500 mt-4 w-full">
+                      <div className="bg-white p-3 rounded-2xl shadow-xl ring-1 ring-slate-900/5">
+                        <img src={tgQrCode} alt="Telegram QR Code" className="w-48 h-48 rounded-lg" />
+                      </div>
+                      <div className="text-center space-y-2">
+                        <p className="text-blue-400 font-medium flex items-center gap-2 justify-center bg-blue-400/10 px-3 py-1 rounded-full text-sm border border-blue-400/20">
+                          <QrCode className="w-4 h-4" /> Scan with Telegram
+                        </p>
+                        <p className="text-xs text-slate-400">Settings {'>'} Devices {'>'} Link Desktop Device</p>
+                      </div>
+                    </div>
+                  ) : tgStatus === 'connected' ? (
+                    <div className="flex flex-col items-center gap-4 text-blue-400 animate-in fade-in duration-500 mt-4">
+                      <div className="bg-blue-500/10 p-4 rounded-full border border-blue-500/20">
+                        <CheckCircle2 className="w-12 h-12" />
+                      </div>
+                      <h2 className="text-xl font-bold tracking-wide text-blue-300">SYSTEM ONLINE</h2>
+                      <p className="text-sm text-blue-500/80 font-medium">Telegram Bot Connected</p>
+                      <button 
+                        onClick={async () => {
+                          if (confirm('Are you sure you want to unlink Telegram and generate a new QR?')) {
+                              await fetch('/api/bot/tg-logout', { method: 'POST' });
+                          }
+                        }}
+                        className="mt-6 px-5 py-2 bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/20 rounded-lg text-xs font-semibold transition-colors"
+                      >
+                        Unlink Bot
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center gap-4 text-slate-500 animate-pulse mt-4">
+                      <Cpu className="w-10 h-10" />
+                      <p className="font-medium tracking-wide text-sm">Initializing Telegram Bot...</p>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="bg-slate-900/50 backdrop-blur-sm border border-slate-800 rounded-2xl p-6 shadow-lg">
                 <h3 className="text-sm font-semibold text-slate-200 mb-5 flex items-center gap-2">
@@ -506,16 +571,20 @@ export default function App() {
                             </label>
                         </div>
                         {config.telegramEnabled && (
-                            <div className="animate-in fade-in zoom-in duration-300">
-                                <label className="block text-sm font-medium text-slate-300 mb-2">Telegram Bot Token</label>
-                                <input 
-                                    type="text" 
-                                    value={config.telegramBotToken}
-                                    onChange={e => setConfig({...config, telegramBotToken: e.target.value})}
-                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
-                                    placeholder="1234567890:ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-                                />
-                                <p className="text-xs text-slate-500 mt-2">Get this from @BotFather on Telegram.</p>
+                            <div className="animate-in fade-in zoom-in duration-300 space-y-4">
+                                <p className="text-xs text-slate-500 mt-2">Telegram integration is active. Scan the QR code on the Dashboard to connect your account.</p>
+                                
+                                <div>
+                                  <label className="block text-sm font-medium text-slate-300 mb-2">Telegram 2FA Password (Optional)</label>
+                                  <input 
+                                      type="password" 
+                                      value={config.telegramPassword || ''}
+                                      onChange={e => setConfig({...config, telegramPassword: e.target.value})}
+                                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
+                                      placeholder="Leave empty if not using 2FA"
+                                  />
+                                  <p className="text-xs text-slate-500 mt-2">Only required if your Telegram account has Two-Step Verification enabled.</p>
+                                </div>
                             </div>
                         )}
                      </section>
