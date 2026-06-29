@@ -1,100 +1,104 @@
 import { GoogleGenAI } from '@google/genai';
 import { getChatHistory, addToChatHistory } from './memory.js';
 import { emitLog } from './socket.js';
-import { downloadMediaMessage } from '@whiskeysockets/baileys';
-import { getConfig } from './config.js';
+import { downloadMediaMessage, WAMessage } from '@whiskeysockets/baileys';
 
 let ai: GoogleGenAI | null = null;
 
-export function getAiClient(): GoogleGenAI | null {
-  if (!ai) {
-    const key = process.env.GEMINI_API_KEY;
-    if (key && key !== 'MY_GEMINI_API_KEY') {
-      ai = new GoogleGenAI({ apiKey: key });
+export function getAiClient() {
+    if (!ai) {
+        const key = process.env.GEMINI_API_KEY;
+        if (key && key !== 'MY_GEMINI_API_KEY') {
+            ai = new GoogleGenAI({ apiKey: key });
+        }
     }
-  }
-  return ai;
+    return ai;
 }
 
-export function isGeminiConfigured(): boolean {
-  const key = process.env.GEMINI_API_KEY;
-  return !!(key && key !== 'MY_GEMINI_API_KEY');
-}
+const SYSTEM_INSTRUCTION = `You are G0DM0D3, an advanced AI assistant interacting via WhatsApp. 
+You are highly intelligent, concise, and helpful. You prefer a cyberpunk, terminal-style aesthetic in your communication style but keep it subtle so as not to annoy the user.
+You support Markdown formatting (e.g. *bold*, _italic_, ~strikethrough~, \`code\`).
+Keep your responses concise as this is a chat interface.`;
 
-export async function processMessageWithGemini(
-  userId: string,
-  text: string,
-  rawMessage: any,
-  systemInstruction: string
-): Promise<string> {
+export async function processMessageWithGemini(userId: string, text: string, rawMessage: any, systemInstruction: string): Promise<string> {
   try {
     const client = getAiClient();
     if (!client) {
-      return 'System error: Gemini API key is missing or invalid. Please set GEMINI_API_KEY in your .env file.';
+        return "System error: Gemini API key is missing or invalid. Please configure it in the AI Studio Secrets panel.";
     }
 
-    const config = getConfig();
     const history = getChatHistory(userId);
-
-    let mediaData: string | null = null;
+    
+    let mediaData = null;
     let mimeType = '';
+    
+    if (rawMessage.imageMessage || rawMessage.documentMessage) {
+        try {
+           const fakeMsg: any = { key: { remoteJid: userId, id: '', fromMe: false }, message: rawMessage };
+           const buffer = await downloadMediaMessage(
+                fakeMsg,
+                'buffer',
+                {},
+                { logger: console as any, reuploadRequest: () => undefined }
+           ) as Buffer;
+           mediaData = buffer.toString('base64');
+           mimeType = rawMessage.imageMessage?.mimetype || rawMessage.documentMessage?.mimetype;
+        } catch (e) {
+            emitLog('Failed to download media', 'error');
+        }
+    } 
 
-    if (rawMessage.imageMessage || rawMessage.documentMessage || rawMessage.audioMessage || rawMessage.videoMessage || rawMessage.stickerMessage) {
-      try {
-        const fakeMsg: any = { key: { remoteJid: userId, id: '', fromMe: false }, message: rawMessage };
-        const buffer = await downloadMediaMessage(
-          fakeMsg, 'buffer', {},
-          { logger: { info: () => {}, error: () => {}, warn: () => {}, debug: () => {}, trace: () => {}, child: () => ({ info: () => {}, error: () => {}, warn: () => {}, debug: () => {}, trace: () => {}, child: () => null }) } as any, reuploadRequest: async () => ({}) as any }
-        ) as Buffer;
-        mediaData = buffer.toString('base64');
-        mimeType = rawMessage.imageMessage?.mimetype
-          || rawMessage.documentMessage?.mimetype
-          || rawMessage.audioMessage?.mimetype
-          || rawMessage.videoMessage?.mimetype
-          || rawMessage.stickerMessage?.mimetype
-          || 'application/octet-stream';
-      } catch (e: any) {
-        emitLog(`Failed to download media: ${e.message}`, 'error');
-      }
-    }
-
-    const formattedHistory = history.map(h => ({ role: h.role, parts: h.parts }));
-
-    let currentParts: any[];
+    const formattedHistory = history.map(h => ({
+        role: h.role,
+        parts: h.parts
+    }));
+    
+    let currentPart: any = { text: text || '[Unsupported media or empty message]' };
+    
     if (mediaData && mimeType) {
-      currentParts = [
-        { text: text || 'Analyze this media.' },
-        { inlineData: { data: mediaData, mimeType } }
-      ];
-    } else {
-      currentParts = [{ text: text || '[Unsupported media or empty message]' }];
+        currentPart = [
+            { text: text || 'Analyze this media.' },
+            {
+                inlineData: {
+                    data: mediaData,
+                    mimeType: mimeType
+                }
+            }
+        ];
     }
-
-    formattedHistory.push({ role: 'user', parts: currentParts });
-
-    const response = await client.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: formattedHistory,
-      config: {
-        systemInstruction,
-        temperature: config.temperature,
-        maxOutputTokens: config.replyMaxLength,
-      }
+    
+    formattedHistory.push({
+        role: 'user',
+        parts: Array.isArray(currentPart) ? currentPart : [{ text: currentPart.text }]
     });
 
-    let replyText = response.text || 'Empty response from AI.';
+    const response = await client.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: formattedHistory,
+        config: {
+            systemInstruction: systemInstruction
+        }
+    });
 
+    const replyText = response.text || 'System malfunction: empty response.';
+    
     addToChatHistory(userId, 'user', text || '[Media Message]');
     addToChatHistory(userId, 'model', replyText);
 
     return replyText;
   } catch (error: any) {
-    emitLog(`Gemini API Error: ${error.message}`, 'gemini');
+    emitLog(`Gemini API Error: ${error.message}`, 'error');
+    
     let displayMessage = error.message;
     try {
-      const parsed = JSON.parse(error.message);
-      if (parsed.error?.message) displayMessage = parsed.error.message;
-    } catch (_) {}
-    return `⚠️ AI Error: ${displayMessage}`;
+        const parsed = JSON.parse(error.message);
+        if (parsed.error && parsed.error.message) {
+            displayMessage = parsed.error.message;
+        }
+    } catch (e) {
+        // Not a JSON string, keep original
+    }
+    
+    return `System error encountered: ${displayMessage}`;
   }
 }

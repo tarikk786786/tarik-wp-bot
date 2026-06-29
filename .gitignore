@@ -1,29 +1,8 @@
-# Dependencies
 node_modules/
-
-# Build output
+build/
 dist/
-
-# Environment
-.env
-.env.local
-
-# Baileys auth session
-baileys_auth_info/
-
-# Bot config (user-generated)
-bot_config.json
-
-# OS files
+coverage/
 .DS_Store
-Thumbs.db
-
-# Editor
-.vscode/
-.idea/
-
-# Logs
 *.log
-
-# Assets build cache
-assets/.aistudio/
+.env*
+!.env.example

@@ -1,79 +1,100 @@
 import express from 'express';
-import { startWhatsAppBot, stopWhatsAppBot, resetSession, getSocketState } from '../bot/index.js';
-import { emitLog, emitStatus, getCurrentStatus, getCurrentQr, getConnectedNumber, getLastLoginTime, getSystemMetrics, getLogs } from '../services/socket.js';
+import { stopWhatsAppBot, startWhatsAppBot, getCreds, setCreds } from '../bot/index.js';
+import fs from 'fs';
+import path from 'path';
+import { emitLog, emitStatus, getCurrentStatus, getCurrentQr } from '../services/socket.js';
 import { getConfig, saveConfig } from '../services/config.js';
-import { clearAllMemory, getMessageStats, getActiveChats, getMemoryStats } from '../services/memory.js';
-import { isGeminiConfigured } from '../services/gemini.js';
+import { clearAllMemory } from '../services/memory.js';
 
 const router = express.Router();
 
-router.get('/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+router.use((req, res, next) => {
+  if (process.env.VERCEL) {
+    // Start bot asynchronously on any API request if not already starting
+    startWhatsAppBot().catch(console.error);
+  }
+  next();
 });
 
-router.get('/status', (_req, res) => {
-  const metrics = getSystemMetrics();
-  const msgStats = getMessageStats();
-  const memStats = getMemoryStats();
-  res.json({
-    status: getCurrentStatus(),
-    qr: getCurrentQr(),
-    connectedNumber: getConnectedNumber(),
-    lastLoginTime: getLastLoginTime(),
-    socketState: getSocketState(),
-    geminiConfigured: isGeminiConfigured(),
-    metrics,
-    messageStats: msgStats,
-    memoryStats: memStats,
-    activeChats: getActiveChats(),
-    platform: detectPlatform(),
+router.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
+router.get('/status', async (req, res) => {
+  if (process.env.VERCEL) {
+    // If bot is starting, keep request alive for a few seconds to give it CPU time
+    if (!getCurrentQr() && (getCurrentStatus() === 'initializing' || getCurrentStatus() === 'disconnected')) {
+      for (let i = 0; i < 30; i++) { // 3 seconds max
+        if (getCurrentQr() || getCurrentStatus() === 'connected' || getCurrentStatus() === 'qr_ready') break;
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
+  }
+  res.json({ 
+      status: getCurrentStatus(), 
+      qr: getCurrentQr(),
+      needsCreds: process.env.VERCEL ? !getCreds() : false
   });
 });
 
-router.get('/logs', (_req, res) => {
-  res.json(getLogs());
+router.post('/auth/sync', express.json({ limit: '10mb' }), async (req, res) => {
+  if (req.body && req.body.creds) {
+      setCreds(req.body.creds);
+      startWhatsAppBot().catch(console.error);
+      
+      if (process.env.VERCEL) {
+          // Keep request alive for a few seconds to let connection establish
+          for (let i = 0; i < 40; i++) {
+              if (getCurrentStatus() === 'connected') break;
+              await new Promise(resolve => setTimeout(resolve, 100));
+          }
+      }
+      
+      res.json({ success: true });
+  } else {
+      res.status(400).json({ success: false });
+  }
 });
 
-router.get('/config', (_req, res) => {
+router.get('/config', (req, res) => {
   res.json(getConfig());
 });
 
 router.post('/config', (req, res) => {
   const updated = saveConfig(req.body);
-  emitLog('⚙️ Configuration updated.', 'system');
+  emitLog('Bot configuration updated.', 'info');
   res.json(updated);
 });
 
-router.post('/bot/restart', (_req, res) => {
+router.post('/bot/restart', (req, res) => {
   stopWhatsAppBot();
-  emitLog('🔄 Bot restart requested...', 'system');
-  setTimeout(() => startWhatsAppBot(), 1500);
+  setTimeout(() => {
+    startWhatsAppBot();
+  }, 1000);
   res.json({ message: 'Restarting bot...' });
 });
 
-router.post('/bot/logout', (_req, res) => {
-  resetSession();
+router.post('/bot/logout', (req, res) => {
+  stopWhatsAppBot();
+  const isVercel = process.env.VERCEL === '1' || process.env.VERCEL;
+  const authFolder = isVercel ? '/tmp/baileys_auth_info' : path.join(process.cwd(), 'baileys_auth_info');
+  if (fs.existsSync(authFolder)) {
+    fs.rmSync(authFolder, { recursive: true, force: true });
+  }
+  emitLog('Logged out and cleared auth data', 'warn');
+  emitStatus('disconnected');
+  
+  setTimeout(() => {
+    startWhatsAppBot();
+  }, 1000);
+  
   res.json({ message: 'Logged out and restarting...' });
 });
 
-router.post('/bot/memory/clear', (_req, res) => {
+router.post('/bot/memory/clear', (req, res) => {
   clearAllMemory();
-  emitLog('🧹 All bot memory cleared.', 'warning');
+  emitLog('All bot contextual memory cleared.', 'warn');
   res.json({ message: 'Memory cleared' });
 });
-
-function detectPlatform(): string {
-  if (process.env.RENDER) return 'render';
-  if (process.env.RAILWAY_STATIC_URL || process.env.RAILWAY_SERVICE_NAME) return 'railway';
-  if (process.env.FLY_APP_NAME) return 'fly';
-  if (process.env.GOOGLE_CLOUD_PROJECT) return 'gcp';
-  if (process.env.AWS_REGION || process.env.AWS_LAMBDA_FUNCTION_NAME) return 'aws';
-  if (process.env.WEBSITE_SITE_NAME) return 'azure';
-  if (process.env.VERCEL) return 'vercel';
-  if (fs.existsSync('/.dockerenv')) return 'docker';
-  return 'vps';
-}
-
-import fs from 'fs';
 
 export default router;
