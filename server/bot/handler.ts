@@ -3,10 +3,25 @@ import { emitLog } from '../services/socket.js';
 import { processMessageWithGemini } from '../services/gemini.js';
 import { getConfig } from '../services/config.js';
 import { isUserActive } from './index.js';
+import { messageQueue } from './queue.js';
+
+const processedMessages = new Set<string>();
+const MAX_PROCESSED = 1000;
 
 export async function handleIncomingMessage(sock: WASocket, msg: WAMessage) {
   try {
-    if (!msg.message) return;
+    if (!msg.message || !msg.key.id) return;
+
+    if (processedMessages.has(msg.key.id)) {
+        return; // Ignore duplicate
+    }
+    
+    processedMessages.add(msg.key.id);
+    if (processedMessages.size > MAX_PROCESSED) {
+        // Remove the oldest 100 elements to avoid memory leaks
+        const toRemove = Array.from(processedMessages).slice(0, 100);
+        toRemove.forEach(id => processedMessages.delete(id));
+    }
 
     const config = getConfig();
     if (!config.botEnabled) return;
@@ -84,31 +99,16 @@ export async function handleIncomingMessage(sock: WASocket, msg: WAMessage) {
         await new Promise(resolve => setTimeout(resolve, config.replyDelayMs));
     }
 
-    try {
-        // Notify user we are typing
-        await sock.sendPresenceUpdate('composing', jid);
-    } catch (e) {
-        // Ignore presence update errors
-    }
-
     // Process with Gemini
     const finalInstruction = `${config.systemInstruction}\n\nStrict Constraints:\n- Mood/Persona: ${config.replyMood}\n- Language: ${config.replyLanguage === 'Auto-detect' ? 'Respond in the language the user speaks to you.' : 'You MUST respond in ' + config.replyLanguage + '.'}`;
     const replyText = await processMessageWithGemini(jid, textMessage || '', msg.message, finalInstruction);
 
     if (replyText) {
         try {
-            // Stop typing
-            await sock.sendPresenceUpdate('paused', jid);
-        } catch (e) {
-            // Ignore presence errors
-        }
-
-        try {
-            // Send reply
-            await sock.sendMessage(jid, { text: replyText }, { quoted: msg });
+            await messageQueue.enqueue(jid, { text: replyText }, { quoted: msg });
             emitLog(`Replied to ${senderNumber}`, 'info');
         } catch (e: any) {
-            emitLog(`Failed to send reply to ${senderNumber}: ${e.message}`, 'error');
+            emitLog(`Final failure sending reply to ${senderNumber}: ${e.message}`, 'error');
         }
     }
   } catch (error: any) {

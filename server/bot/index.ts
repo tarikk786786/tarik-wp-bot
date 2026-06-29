@@ -14,6 +14,10 @@ let botStarting = false;
 let lastUserActivityTime = 0;
 let retryCount = 0;
 
+export function getSock() {
+    return sock;
+}
+
 export function isUserActive() {
     return Date.now() - lastUserActivityTime < 5 * 60 * 1000;
 }
@@ -66,7 +70,7 @@ export async function startWhatsAppBot() {
       printQRInTerminal: false,
       auth: state,
       browser: ['Tarik Bhai AI', 'Chrome', '1.0.0'],
-      markOnlineOnConnect: true,
+      markOnlineOnConnect: false,
       syncFullHistory: false,
       generateHighQualityLinkPreview: true,
       connectTimeoutMs: 60000,
