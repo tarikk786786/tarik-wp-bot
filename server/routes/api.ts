@@ -2,7 +2,7 @@ import express from 'express';
 import { stopWhatsAppBot, startWhatsAppBot } from '../bot/index.js';
 import fs from 'fs';
 import path from 'path';
-import { emitLog, emitStatus } from '../services/socket.js';
+import { emitLog, emitStatus, getCurrentStatus, getCurrentQr } from '../services/socket.js';
 import { getConfig, saveConfig } from '../services/config.js';
 import { clearAllMemory } from '../services/memory.js';
 
@@ -10,6 +10,10 @@ const router = express.Router();
 
 router.get('/health', (req, res) => {
   res.json({ status: 'ok' });
+});
+
+router.get('/status', (req, res) => {
+  res.json({ status: getCurrentStatus(), qr: getCurrentQr() });
 });
 
 router.get('/config', (req, res) => {

@@ -20,6 +20,9 @@ export function initSocket(serverIo: Server) {
   });
 }
 
+export function getCurrentStatus() { return currentStatus; }
+export function getCurrentQr() { return currentQr; }
+
 export function getIo() {
   return io;
 }

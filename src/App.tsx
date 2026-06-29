@@ -137,6 +137,15 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
+    // Initial fetch
+    fetch('/api/status')
+        .then(res => res.json())
+        .then(data => {
+            setStatus(data.status);
+            if (data.qr) setQrCode(data.qr);
+        })
+        .catch(console.error);
+
     const s = io();
     setSocket(s);
 
@@ -157,8 +166,26 @@ export default function App() {
       setLogs(prev => [...prev.slice(-99), log]);
     });
 
+    // Polling fallback for serverless environments (Vercel)
+    const interval = setInterval(() => {
+        fetch('/api/status')
+            .then(res => res.json())
+            .then(data => {
+                setStatus(prev => {
+                    // Update only if changed to avoid unnecessary renders
+                    if (prev !== data.status && data.status) return data.status;
+                    return prev;
+                });
+                if (data.qr) {
+                    setQrCode(prev => prev !== data.qr ? data.qr : prev);
+                }
+            })
+            .catch(() => {});
+    }, 2500);
+
     return () => {
       s.disconnect();
+      clearInterval(interval);
     };
   }, []);
 
