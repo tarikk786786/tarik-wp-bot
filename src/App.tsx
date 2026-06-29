@@ -141,6 +141,12 @@ export default function App() {
     fetch('/api/status')
         .then(res => res.json())
         .then(data => {
+            if (data.creds) {
+                const currentCreds = localStorage.getItem('wa_creds');
+                if (currentCreds !== data.creds) {
+                    localStorage.setItem('wa_creds', data.creds);
+                }
+            }
             if (data.needsCreds) {
                 const creds = localStorage.getItem('wa_creds');
                 if (creds) {
@@ -185,35 +191,49 @@ export default function App() {
     });
 
     // Polling fallback for serverless environments (Vercel)
-    const interval = setInterval(() => {
-        fetch('/api/status')
-            .then(res => res.json())
-            .then(data => {
-                if (data.needsCreds) {
-                    const creds = localStorage.getItem('wa_creds');
-                    if (creds) {
-                        fetch('/api/auth/sync', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ creds })
-                        }).catch(console.error);
-                    }
+    let isPolling = true;
+    const pollStatus = async () => {
+        if (!isPolling) return;
+        try {
+            const res = await fetch('/api/status');
+            const data = await res.json();
+            if (data.creds) {
+                const currentCreds = localStorage.getItem('wa_creds');
+                if (currentCreds !== data.creds) {
+                    localStorage.setItem('wa_creds', data.creds);
                 }
-                setStatus(prev => {
-                    // Update only if changed to avoid unnecessary renders
-                    if (prev !== data.status && data.status) return data.status;
-                    return prev;
-                });
-                if (data.qr) {
-                    setQrCode(prev => prev !== data.qr ? data.qr : prev);
+            }
+            if (data.needsCreds) {
+                const creds = localStorage.getItem('wa_creds');
+                if (creds) {
+                    fetch('/api/auth/sync', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ creds })
+                    }).catch(console.error);
                 }
-            })
-            .catch(() => {});
-    }, 1500);
+            }
+            setStatus(prev => {
+                // Update only if changed to avoid unnecessary renders
+                if (prev !== data.status && data.status) return data.status;
+                return prev;
+            });
+            if (data.qr) {
+                setQrCode(prev => prev !== data.qr ? data.qr : prev);
+            }
+        } catch (e) {
+            console.error(e);
+        } finally {
+            if (isPolling) {
+                setTimeout(pollStatus, 500); // Wait 500ms before next poll
+            }
+        }
+    };
+    pollStatus();
 
     return () => {
       s.disconnect();
-      clearInterval(interval);
+      isPolling = false;
     };
   }, []);
 

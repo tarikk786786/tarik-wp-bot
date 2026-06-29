@@ -13,18 +13,31 @@ const authFolder = isVercel ? '/tmp/baileys_auth_info' : path.join(process.cwd()
 let botStarting = false;
 
 export function getCreds() {
-    const credsPath = path.join(authFolder, 'creds.json');
-    if (fs.existsSync(credsPath)) {
-        return fs.readFileSync(credsPath, 'utf8');
+    if (!fs.existsSync(authFolder)) return null;
+    const files = fs.readdirSync(authFolder);
+    const state: any = {};
+    let hasCreds = false;
+    for (const file of files) {
+        if (file.endsWith('.json')) {
+            state[file] = fs.readFileSync(path.join(authFolder, file), 'utf8');
+            if (file === 'creds.json') hasCreds = true;
+        }
     }
-    return null;
+    return hasCreds ? JSON.stringify(state) : null;
 }
 
 export function setCreds(credsData: string) {
     if (!fs.existsSync(authFolder)) {
         fs.mkdirSync(authFolder, { recursive: true });
     }
-    fs.writeFileSync(path.join(authFolder, 'creds.json'), credsData);
+    try {
+        const state = JSON.parse(credsData);
+        for (const file in state) {
+            fs.writeFileSync(path.join(authFolder, file), state[file]);
+        }
+    } catch (e) {
+        console.error('Failed to parse creds', e);
+    }
 }
 
 export async function startWhatsAppBot() {

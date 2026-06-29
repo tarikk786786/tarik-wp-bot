@@ -21,11 +21,18 @@ router.get('/health', (req, res) => {
 });
 
 router.get('/status', async (req, res) => {
+  const startStatus = getCurrentStatus();
   if (process.env.VERCEL) {
-    // If bot is starting, keep request alive for a few seconds to give it CPU time
-    if (!getCurrentQr() && (getCurrentStatus() === 'initializing' || getCurrentStatus() === 'disconnected')) {
+    // If bot is starting, keep request alive to give it CPU time
+    if (!getCurrentQr() && (startStatus === 'initializing' || startStatus === 'disconnected')) {
       for (let i = 0; i < 30; i++) { // 3 seconds max
         if (getCurrentQr() || getCurrentStatus() === 'connected' || getCurrentStatus() === 'qr_ready') break;
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    } else if (startStatus === 'qr_ready' || startStatus === 'connected') {
+      // Keep the function alive as long as possible so Baileys can maintain its websocket connection to WhatsApp
+      for (let i = 0; i < 80; i++) { // 8 seconds max
+        if (getCurrentStatus() !== startStatus) break;
         await new Promise(resolve => setTimeout(resolve, 100));
       }
     }
@@ -33,13 +40,16 @@ router.get('/status', async (req, res) => {
   res.json({ 
       status: getCurrentStatus(), 
       qr: getCurrentQr(),
-      needsCreds: process.env.VERCEL ? !getCreds() : false
+      needsCreds: process.env.VERCEL ? !getCreds() : false,
+      creds: process.env.VERCEL ? getCreds() : null
   });
 });
 
 router.post('/auth/sync', express.json({ limit: '10mb' }), async (req, res) => {
   if (req.body && req.body.creds) {
-      setCreds(req.body.creds);
+      if (!getCreds()) {
+          setCreds(req.body.creds);
+      }
       startWhatsAppBot().catch(console.error);
       
       if (process.env.VERCEL) {
