@@ -55,11 +55,17 @@ export async function startWhatsAppBot() {
     logger: pino({ level: 'silent' }) as any,
     printQRInTerminal: false,
     auth: state,
+    browser: ['Tarik Bhai AI', 'Chrome', '1.0.0'],
+    markOnlineOnConnect: false,
+    syncFullHistory: false,
     generateHighQualityLinkPreview: true,
     keepAliveIntervalMs: 20000,
     connectTimeoutMs: 60000,
     defaultQueryTimeoutMs: 60000,
     retryRequestDelayMs: 1000,
+    getMessage: async (key: any) => {
+        return { conversation: 'Bot is running...' };
+    },
   });
 
   sock.ev.on('creds.update', async () => {
