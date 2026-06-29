@@ -20,7 +20,7 @@ You are highly intelligent, concise, and helpful. You prefer a cyberpunk, termin
 You support Markdown formatting (e.g. *bold*, _italic_, ~strikethrough~, \`code\`).
 Keep your responses concise as this is a chat interface.`;
 
-export async function processMessageWithGemini(userId: string, text: string, rawMessage: any, systemInstruction: string): Promise<string> {
+export async function processMessageWithGemini(userId: string, text: string, rawMessage: any, systemInstruction: string, overrideMedia?: { data: string, mimeType: string }): Promise<string> {
   try {
     const client = getAiClient();
     if (!client) {
@@ -29,10 +29,10 @@ export async function processMessageWithGemini(userId: string, text: string, raw
 
     const history = getChatHistory(userId);
     
-    let mediaData = null;
-    let mimeType = '';
+    let mediaData = overrideMedia?.data || null;
+    let mimeType = overrideMedia?.mimeType || '';
     
-    if (rawMessage.imageMessage || rawMessage.documentMessage || rawMessage.audioMessage || rawMessage.videoMessage || rawMessage.stickerMessage) {
+    if (!overrideMedia && rawMessage && (rawMessage.imageMessage || rawMessage.documentMessage || rawMessage.audioMessage || rawMessage.videoMessage || rawMessage.stickerMessage)) {
         try {
            const fakeMsg: any = { key: { remoteJid: userId, id: '', fromMe: false }, message: rawMessage };
            const buffer = await downloadMediaMessage(

@@ -3,6 +3,8 @@ import path from 'path';
 
 export interface BotConfig {
     botEnabled: boolean;
+    telegramEnabled: boolean;
+    telegramBotToken: string;
     systemInstruction: string;
     replyToPrivate: boolean;
     replyToGroups: boolean;
@@ -20,6 +22,8 @@ const configPath = path.join(process.cwd(), 'bot_config.json');
 
 const defaultConfig: BotConfig = {
     botEnabled: true,
+    telegramEnabled: false,
+    telegramBotToken: "",
     systemInstruction: "You are Tarik Bhai AI, an advanced AI assistant created by Tarik Islam. You are highly intelligent, concise, and helpful. You know that Tarik Islam is a Forensic Science Professional, AI Developer, Cyber Security Enthusiast, Entrepreneur, and Full Stack Developer. You know he loves Dazy (Gelhu Bacha). You support Markdown formatting (e.g. *bold*, _italic_, ~strikethrough~, `code`). Keep your responses concise as this is a chat interface.",
     replyToPrivate: true,
     replyToGroups: false,

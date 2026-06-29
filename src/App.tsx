@@ -10,6 +10,8 @@ interface Log {
 
 interface BotConfig {
     botEnabled: boolean;
+    telegramEnabled: boolean;
+    telegramBotToken: string;
     systemInstruction: string;
     replyToPrivate: boolean;
     replyToGroups: boolean;
@@ -136,6 +138,13 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'settings'>('dashboard');
   const [config, setConfig] = useState<BotConfig | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [showConsole, setShowConsole] = useState(() => {
+    return localStorage.getItem('showConsole') === 'true';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('showConsole', showConsole.toString());
+  }, [showConsole]);
 
   useEffect(() => {
     // Initial fetch
@@ -406,7 +415,8 @@ export default function App() {
             </div>
 
             {/* Right Column: Terminal Logs */}
-            <div className="lg:col-span-2 bg-slate-950 border border-slate-800 rounded-2xl flex flex-col h-[600px] lg:h-auto overflow-hidden shadow-xl ring-1 ring-white/5">
+            {showConsole && (
+            <div className="lg:col-span-2 bg-slate-950 border border-slate-800 rounded-2xl flex flex-col h-[600px] lg:h-auto overflow-hidden shadow-xl ring-1 ring-white/5 animate-in fade-in zoom-in duration-300">
               <div className="bg-slate-900/80 border-b border-slate-800 px-5 py-3 flex items-center justify-between backdrop-blur-sm">
                 <div className="flex items-center gap-2">
                   <TerminalIcon className="w-4 h-4 text-slate-400" />
@@ -444,6 +454,7 @@ export default function App() {
                 <div ref={logsEndRef} />
               </div>
             </div>
+            )}
           </div>
         ) : (
           <div className="bg-slate-900/50 backdrop-blur-sm border border-slate-800 rounded-2xl p-6 lg:p-10 animate-in fade-in duration-300 shadow-xl max-w-4xl mx-auto">
@@ -471,6 +482,58 @@ export default function App() {
                             <span className="ml-3 text-sm font-medium text-slate-300">
                                 {config.botEnabled ? 'Active' : 'Disabled'}
                             </span>
+                        </label>
+                     </section>
+
+                     {/* TELEGRAM SETTINGS */}
+                     <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-sm space-y-6">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <h3 className="text-lg font-bold text-slate-200">Telegram Bot Integration</h3>
+                                <p className="text-sm text-slate-400 mt-1">Enable Telegram bot and provide the bot token.</p>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                                <input 
+                                    type="checkbox" 
+                                    className="sr-only peer"
+                                    checked={config.telegramEnabled}
+                                    onChange={e => setConfig({...config, telegramEnabled: e.target.checked})}
+                                />
+                                <div className="w-14 h-7 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-emerald-500"></div>
+                                <span className="ml-3 text-sm font-medium text-slate-300">
+                                    {config.telegramEnabled ? 'Enabled' : 'Disabled'}
+                                </span>
+                            </label>
+                        </div>
+                        {config.telegramEnabled && (
+                            <div className="animate-in fade-in zoom-in duration-300">
+                                <label className="block text-sm font-medium text-slate-300 mb-2">Telegram Bot Token</label>
+                                <input 
+                                    type="text" 
+                                    value={config.telegramBotToken}
+                                    onChange={e => setConfig({...config, telegramBotToken: e.target.value})}
+                                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
+                                    placeholder="1234567890:ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                                />
+                                <p className="text-xs text-slate-500 mt-2">Get this from @BotFather on Telegram.</p>
+                            </div>
+                        )}
+                     </section>
+
+                     {/* UI OPTIONS */}
+                     <section className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-sm flex items-center justify-between">
+                        <div>
+                            <h3 className="text-lg font-bold text-slate-200">Show System Console</h3>
+                            <p className="text-sm text-slate-400 mt-1">Display the live system console on the dashboard.</p>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                            <input 
+                                type="checkbox" 
+                                className="sr-only peer"
+                                checked={showConsole}
+                                onChange={e => setShowConsole(e.target.checked)}
+                            />
+                            <div className="w-14 h-7 bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-indigo-500"></div>
                         </label>
                      </section>
 

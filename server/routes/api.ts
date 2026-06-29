@@ -1,5 +1,6 @@
 import express from 'express';
 import { stopWhatsAppBot, startWhatsAppBot, getCreds, setCreds } from '../bot/index.js';
+import { startTelegramBot, stopTelegramBot } from '../bot/telegram.js';
 import fs from 'fs';
 import path from 'path';
 import { emitLog, emitStatus, getCurrentStatus, getCurrentQr } from '../services/socket.js';
@@ -100,19 +101,29 @@ router.get('/config', (req, res) => {
 router.post('/config', (req, res) => {
   const updated = saveConfig(req.body);
   emitLog('Bot configuration updated.', 'info');
+  
+  // Restart Telegram bot to apply new token/settings if needed
+  stopTelegramBot();
+  setTimeout(() => {
+    startTelegramBot();
+  }, 1000);
+  
   res.json(updated);
 });
 
 router.post('/bot/restart', (req, res) => {
   stopWhatsAppBot();
+  stopTelegramBot();
   setTimeout(() => {
     startWhatsAppBot();
+    startTelegramBot();
   }, 1000);
   res.json({ message: 'Restarting bot...' });
 });
 
 router.post('/bot/logout', (req, res) => {
   stopWhatsAppBot();
+  stopTelegramBot();
   const isStateless = process.env.VERCEL === '1' || process.env.VERCEL === 'true' || process.env.RENDER === '1' || process.env.RENDER === 'true' || process.env.RENDER;
   const authFolder = isStateless ? '/tmp/baileys_auth_info' : path.join(process.cwd(), 'baileys_auth_info');
   if (fs.existsSync(authFolder)) {

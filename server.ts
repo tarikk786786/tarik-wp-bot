@@ -5,6 +5,7 @@ import { Server } from 'socket.io';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { startWhatsAppBot, stopWhatsAppBot } from './server/bot/index.js';
+import { startTelegramBot, stopTelegramBot } from './server/bot/telegram.js';
 import { initSocket, emitLog } from './server/services/socket.js';
 import apiRoutes from './server/routes/api.js';
 
@@ -60,7 +61,25 @@ if (!isServerless) {
   httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
     startWhatsAppBot();
+    startTelegramBot();
   });
 }
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  stopWhatsAppBot();
+  stopTelegramBot();
+  httpServer.close(() => {
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  stopWhatsAppBot();
+  stopTelegramBot();
+  httpServer.close(() => {
+    process.exit(0);
+  });
+});
 
 export default app;
