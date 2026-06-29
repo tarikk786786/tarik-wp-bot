@@ -22,7 +22,7 @@ const PORT = 3000;
 app.use(express.json());
 app.use('/api', apiRoutes);
 
-async function startServer() {
+async function setupVite() {
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -36,17 +36,14 @@ async function startServer() {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
-
-  if (!process.env.VERCEL) {
-    httpServer.listen(PORT, '0.0.0.0', () => {
-      console.log(`Server running on port ${PORT}`);
-      startWhatsAppBot();
-    });
-  }
 }
+setupVite();
 
 if (!process.env.VERCEL) {
-  startServer();
+  httpServer.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on port ${PORT}`);
+    startWhatsAppBot();
+  });
 }
 
 export default app;
