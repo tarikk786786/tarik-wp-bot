@@ -1,4 +1,4 @@
-import { makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion, Browsers } from '@whiskeysockets/baileys';
+import { makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion, Browsers, delay } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import QRCode from 'qrcode';
 import { emitStatus, emitLog, emitQR, getIo } from '../services/socket.js';
@@ -7,11 +7,12 @@ import fs from 'fs';
 import path from 'path';
 
 let sock: any = null;
-const isStateless = process.env.VERCEL === '1' || process.env.VERCEL === 'true' || process.env.RENDER === '1' || process.env.RENDER === 'true' || process.env.RENDER;
+const isStateless = process.env.VERCEL === '1' || process.env.VERCEL === 'true' || process.env.RENDER === '1' || process.env.RENDER === 'true' || !!process.env.RENDER;
 const authFolder = isStateless ? '/tmp/baileys_auth_info' : path.join(process.cwd(), 'baileys_auth_info');
 
 let botStarting = false;
 let lastUserActivityTime = 0;
+let retryCount = 0;
 
 export function isUserActive() {
     return Date.now() - lastUserActivityTime < 5 * 60 * 1000;
@@ -19,16 +20,20 @@ export function isUserActive() {
 
 export function getCreds() {
     if (!fs.existsSync(authFolder)) return null;
-    const files = fs.readdirSync(authFolder);
-    const state: any = {};
-    let hasCreds = false;
-    for (const file of files) {
-        if (file.endsWith('.json')) {
-            state[file] = fs.readFileSync(path.join(authFolder, file), 'utf8');
-            if (file === 'creds.json') hasCreds = true;
+    try {
+        const files = fs.readdirSync(authFolder);
+        const state: any = {};
+        let hasCreds = false;
+        for (const file of files) {
+            if (file.endsWith('.json')) {
+                state[file] = fs.readFileSync(path.join(authFolder, file), 'utf8');
+                if (file === 'creds.json') hasCreds = true;
+            }
         }
+        return hasCreds ? JSON.stringify(state) : null;
+    } catch (e) {
+        return null;
     }
-    return hasCreds ? JSON.stringify(state) : null;
 }
 
 export function setCreds(credsData: string) {
@@ -51,111 +56,131 @@ export async function startWhatsAppBot() {
   try {
     const { state, saveCreds } = await useMultiFileAuthState(authFolder);
 
-  const { version, isLatest } = await fetchLatestBaileysVersion();
-  
-  emitLog(`using WA v${version.join('.')}, isLatest: ${isLatest}`, 'info');
-
-  sock = makeWASocket({
-    version,
-    logger: pino({ level: 'silent' }) as any,
-    printQRInTerminal: false,
-    auth: state,
-    browser: Browsers.macOS('Desktop'),
-    markOnlineOnConnect: false,
-    syncFullHistory: false,
-    generateHighQualityLinkPreview: true,
-    keepAliveIntervalMs: 20000,
-    connectTimeoutMs: 60000,
-    defaultQueryTimeoutMs: 60000,
-    retryRequestDelayMs: 1000,
-    getMessage: async (key: any) => {
-        return { conversation: 'Bot is running...' };
-    },
-  });
-
-  sock.ev.on('creds.update', async () => {
-      await saveCreds();
-      // On update, if in Vercel/Render, emit the creds so the client can save them
-      if (isStateless) {
-          const credsString = getCreds();
-          if (credsString) {
-              const io = getIo();
-              if (io) io.emit('creds_update', credsString);
-          }
-      }
-  });
-
-  sock.ev.on('connection.update', async (update: any) => {
-    const { connection, lastDisconnect, qr } = update;
+    const { version, isLatest } = await fetchLatestBaileysVersion();
     
-    if (qr) {
-      emitLog('QR Code received, waiting for scan...', 'info');
-      try {
-        const qrDataURL = await QRCode.toDataURL(qr);
-        emitQR(qrDataURL);
-        emitStatus('qr_ready');
-      } catch (err) {
-        emitLog('Failed to generate QR code', 'error');
-      }
-    }
+    emitLog(`Using WA v${version.join('.')}, isLatest: ${isLatest}`, 'info');
 
-    if (connection === 'close') {
-      const error = lastDisconnect?.error as any;
-      const shouldReconnect = error?.output?.statusCode !== DisconnectReason.loggedOut;
-      emitLog(`Connection closed. Reconnecting: ${shouldReconnect}. Reason: ${error?.message || 'unknown'}`, 'warn');
-      emitStatus('disconnected');
+    sock = makeWASocket({
+      version,
+      logger: pino({ level: 'silent' }) as any,
+      printQRInTerminal: false,
+      auth: state,
+      browser: ['Tarik Bhai AI', 'Chrome', '1.0.0'],
+      markOnlineOnConnect: true,
+      syncFullHistory: false,
+      generateHighQualityLinkPreview: true,
+      connectTimeoutMs: 60000,
+      defaultQueryTimeoutMs: 60000,
+      keepAliveIntervalMs: 25000,
+      getMessage: async (key: any) => {
+          return { conversation: 'Bot is running...' };
+      },
+    });
+
+    sock.ev.on('creds.update', async () => {
+        try {
+            await saveCreds();
+            // On update, if in Vercel/Render, emit the creds so the client can save them
+            if (isStateless) {
+                const credsString = getCreds();
+                if (credsString) {
+                    const io = getIo();
+                    if (io) io.emit('creds_update', credsString);
+                }
+            }
+        } catch (err) {
+            emitLog(`Failed to save credentials: ${err}`, 'error');
+        }
+    });
+
+    sock.ev.on('connection.update', async (update: any) => {
+      const { connection, lastDisconnect, qr } = update;
       
-      if (shouldReconnect) {
-        sock = null;
-        setTimeout(startWhatsAppBot, 2000);
-      } else {
-        emitLog('Logged out. Generating new QR...', 'error');
-        if (fs.existsSync(authFolder)) {
-            fs.rmSync(authFolder, { recursive: true, force: true });
+      if (qr) {
+        emitLog('QR Code received, waiting for scan...', 'info');
+        try {
+          const qrDataURL = await QRCode.toDataURL(qr);
+          emitQR(qrDataURL);
+          emitStatus('qr_ready');
+        } catch (err) {
+          emitLog('Failed to generate QR code', 'error');
         }
-        if (isStateless) {
-            const io = getIo();
-            if (io) io.emit('creds_update', '');
-        }
-        sock = null;
-        setTimeout(startWhatsAppBot, 2000);
       }
-    } else if (connection === 'open') {
-      emitLog('WhatsApp connected successfully!', 'info');
-      emitStatus('connected');
-      emitQR('');
-      if (isStateless) {
-          const credsString = getCreds();
-          if (credsString) {
-              const io = getIo();
-              if (io) io.emit('creds_update', credsString);
-          }
-      }
-    }
-  });
 
-  sock.ev.on('messages.upsert', async (m: any) => {
-    if (m.type === 'notify') {
-      for (const msg of m.messages) {
-        if (!msg.key.fromMe) {
-          await handleIncomingMessage(sock, msg);
+      if (connection === 'close') {
+        const error = lastDisconnect?.error as any;
+        const statusCode = error?.output?.statusCode;
+        const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+        
+        emitLog(`Connection closed. Reconnecting: ${shouldReconnect}. Reason: ${statusCode} - ${error?.message || 'unknown'}`, 'warn');
+        emitStatus('disconnected');
+        
+        sock = null;
+        botStarting = false;
+
+        if (shouldReconnect) {
+          // Exponential backoff for reconnect
+          retryCount++;
+          const retryDelay = Math.min(retryCount * 2000, 30000);
+          emitLog(`Reconnecting in ${retryDelay/1000}s...`, 'info');
+          setTimeout(startWhatsAppBot, retryDelay);
         } else {
-          lastUserActivityTime = Date.now();
+          emitLog('Logged out by user. Generating new QR...', 'error');
+          retryCount = 0; // reset
+          if (fs.existsSync(authFolder)) {
+              try { fs.rmSync(authFolder, { recursive: true, force: true }); } catch (e) {}
+          }
+          if (isStateless) {
+              const io = getIo();
+              if (io) io.emit('creds_update', '');
+          }
+          setTimeout(startWhatsAppBot, 2000);
+        }
+      } else if (connection === 'open') {
+        retryCount = 0; // Reset retry count on successful connection
+        emitLog('WhatsApp connected successfully!', 'info');
+        emitStatus('connected');
+        emitQR('');
+        if (isStateless) {
+            const credsString = getCreds();
+            if (credsString) {
+                const io = getIo();
+                if (io) io.emit('creds_update', credsString);
+            }
         }
       }
-    }
-  });
+    });
 
-  botStarting = false;
-} catch (err) {
-  botStarting = false;
-  emitLog('Failed to start WhatsApp bot: ' + String(err), 'error');
-}
+    sock.ev.on('messages.upsert', async (m: any) => {
+      if (m.type === 'notify') {
+        for (const msg of m.messages) {
+          if (!msg.key.fromMe) {
+            await handleIncomingMessage(sock, msg);
+          } else {
+            lastUserActivityTime = Date.now();
+          }
+        }
+      }
+    });
+
+    botStarting = false;
+  } catch (err: any) {
+    botStarting = false;
+    emitLog(`Failed to start WhatsApp bot: ${err.message}`, 'error');
+    // Auto retry after delay
+    retryCount++;
+    const retryDelay = Math.min(retryCount * 5000, 60000);
+    setTimeout(startWhatsAppBot, retryDelay);
+  }
 }
 
 export function stopWhatsAppBot() {
   if (sock) {
-    sock.logout();
+    try {
+        sock.ev.removeAllListeners();
+        sock.end(undefined);
+    } catch(e) {}
     sock = null;
   }
+  botStarting = false;
 }

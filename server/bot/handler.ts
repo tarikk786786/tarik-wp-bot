@@ -66,8 +66,13 @@ export async function handleIncomingMessage(sock: WASocket, msg: WAMessage) {
                         msg.message.videoMessage?.caption;
 
     if (!textMessage) {
-       // If just an image with no caption, we could still reply
-       if (!msg.message.imageMessage && !msg.message.audioMessage) {
+       // If it's a pure media message with no caption, proceed if it's a supported type
+       const isMedia = msg.message.imageMessage || 
+                       msg.message.audioMessage || 
+                       msg.message.videoMessage || 
+                       msg.message.documentMessage ||
+                       msg.message.stickerMessage;
+       if (!isMedia) {
            return;
        }
     }
@@ -79,20 +84,33 @@ export async function handleIncomingMessage(sock: WASocket, msg: WAMessage) {
         await new Promise(resolve => setTimeout(resolve, config.replyDelayMs));
     }
 
-    // Notify user we are typing
-    await sock.sendPresenceUpdate('composing', jid);
+    try {
+        // Notify user we are typing
+        await sock.sendPresenceUpdate('composing', jid);
+    } catch (e) {
+        // Ignore presence update errors
+    }
 
     // Process with Gemini
     const finalInstruction = `${config.systemInstruction}\n\nStrict Constraints:\n- Mood/Persona: ${config.replyMood}\n- Language: ${config.replyLanguage === 'Auto-detect' ? 'Respond in the language the user speaks to you.' : 'You MUST respond in ' + config.replyLanguage + '.'}`;
     const replyText = await processMessageWithGemini(jid, textMessage || '', msg.message, finalInstruction);
 
-    // Stop typing
-    await sock.sendPresenceUpdate('paused', jid);
+    if (replyText) {
+        try {
+            // Stop typing
+            await sock.sendPresenceUpdate('paused', jid);
+        } catch (e) {
+            // Ignore presence errors
+        }
 
-    // Send reply
-    await sock.sendMessage(jid, { text: replyText }, { quoted: msg });
-    
-    emitLog(`Replied to ${senderNumber}`, 'info');
+        try {
+            // Send reply
+            await sock.sendMessage(jid, { text: replyText }, { quoted: msg });
+            emitLog(`Replied to ${senderNumber}`, 'info');
+        } catch (e: any) {
+            emitLog(`Failed to send reply to ${senderNumber}: ${e.message}`, 'error');
+        }
+    }
   } catch (error: any) {
     emitLog(`Error handling message: ${error.message}`, 'error');
   }

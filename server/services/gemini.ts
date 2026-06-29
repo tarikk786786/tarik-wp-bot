@@ -32,7 +32,7 @@ export async function processMessageWithGemini(userId: string, text: string, raw
     let mediaData = null;
     let mimeType = '';
     
-    if (rawMessage.imageMessage || rawMessage.documentMessage) {
+    if (rawMessage.imageMessage || rawMessage.documentMessage || rawMessage.audioMessage || rawMessage.videoMessage || rawMessage.stickerMessage) {
         try {
            const fakeMsg: any = { key: { remoteJid: userId, id: '', fromMe: false }, message: rawMessage };
            const buffer = await downloadMediaMessage(
@@ -42,7 +42,16 @@ export async function processMessageWithGemini(userId: string, text: string, raw
                 { logger: console as any, reuploadRequest: () => undefined }
            ) as Buffer;
            mediaData = buffer.toString('base64');
-           mimeType = rawMessage.imageMessage?.mimetype || rawMessage.documentMessage?.mimetype;
+           mimeType = rawMessage.imageMessage?.mimetype || 
+                      rawMessage.documentMessage?.mimetype || 
+                      rawMessage.audioMessage?.mimetype || 
+                      rawMessage.videoMessage?.mimetype || 
+                      rawMessage.stickerMessage?.mimetype;
+           
+           // Clean up mimeType for audio/video (sometimes WhatsApp sends parameters we don't want like codecs)
+           if (mimeType) {
+               mimeType = mimeType.split(';')[0];
+           }
         } catch (e) {
             emitLog('Failed to download media', 'error');
         }

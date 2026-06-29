@@ -8,6 +8,30 @@ import { clearAllMemory } from '../services/memory.js';
 
 const router = express.Router();
 
+const requestCounts = new Map<string, { count: number, resetTime: number }>();
+
+const rateLimiter = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const ip = req.ip || 'unknown';
+    const now = Date.now();
+    const record = requestCounts.get(ip) || { count: 0, resetTime: now + 60000 };
+    
+    if (now > record.resetTime) {
+        record.count = 1;
+        record.resetTime = now + 60000;
+    } else {
+        record.count++;
+    }
+    
+    requestCounts.set(ip, record);
+    
+    if (record.count > 100) { // 100 requests per minute
+        return res.status(429).json({ error: 'Too many requests' });
+    }
+    next();
+};
+
+router.use(rateLimiter);
+
 const isServerless = process.env.VERCEL === '1' || process.env.VERCEL === 'true';
 const isStateless = isServerless || process.env.RENDER === '1' || process.env.RENDER === 'true' || process.env.RENDER;
 

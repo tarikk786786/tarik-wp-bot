@@ -5,8 +5,23 @@ import { Server } from 'socket.io';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { startWhatsAppBot, stopWhatsAppBot } from './server/bot/index.js';
-import { initSocket } from './server/services/socket.js';
+import { initSocket, emitLog } from './server/services/socket.js';
 import apiRoutes from './server/routes/api.js';
+
+// Global error handlers to prevent crash
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+  try {
+    emitLog(`CRITICAL ERROR (Uncaught Exception): ${err.message}`, 'error');
+  } catch (e) {}
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  try {
+    emitLog(`CRITICAL ERROR (Unhandled Rejection): ${reason}`, 'error');
+  } catch (e) {}
+});
 
 const app = express();
 const httpServer = createServer(app);
