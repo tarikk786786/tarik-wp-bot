@@ -1,7 +1,7 @@
 import { makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import QRCode from 'qrcode';
-import { emitStatus, emitLog, emitQR } from '../services/socket.js';
+import { emitStatus, emitLog, emitQR, getIo } from '../services/socket.js';
 import { handleIncomingMessage } from './handler.js';
 import fs from 'fs';
 import path from 'path';
@@ -11,6 +11,21 @@ const isVercel = process.env.VERCEL === '1' || process.env.VERCEL;
 const authFolder = isVercel ? '/tmp/baileys_auth_info' : path.join(process.cwd(), 'baileys_auth_info');
 
 let botStarting = false;
+
+export function getCreds() {
+    const credsPath = path.join(authFolder, 'creds.json');
+    if (fs.existsSync(credsPath)) {
+        return fs.readFileSync(credsPath, 'utf8');
+    }
+    return null;
+}
+
+export function setCreds(credsData: string) {
+    if (!fs.existsSync(authFolder)) {
+        fs.mkdirSync(authFolder, { recursive: true });
+    }
+    fs.writeFileSync(path.join(authFolder, 'creds.json'), credsData);
+}
 
 export async function startWhatsAppBot() {
   if (sock || botStarting) return;
@@ -30,7 +45,17 @@ export async function startWhatsAppBot() {
     generateHighQualityLinkPreview: true,
   });
 
-  sock.ev.on('creds.update', saveCreds);
+  sock.ev.on('creds.update', (creds) => {
+      saveCreds();
+      // On update, if in Vercel, emit the creds so the client can save them
+      if (isVercel) {
+          const credsString = getCreds();
+          if (credsString) {
+              const io = getIo();
+              if (io) io.emit('creds_update', credsString);
+          }
+      }
+  });
 
   sock.ev.on('connection.update', async (update: any) => {
     const { connection, lastDisconnect, qr } = update;
@@ -52,18 +77,31 @@ export async function startWhatsAppBot() {
       emitStatus('disconnected');
       
       if (shouldReconnect) {
+        sock = null;
         setTimeout(startWhatsAppBot, 2000);
       } else {
         emitLog('Logged out. Generating new QR...', 'error');
         if (fs.existsSync(authFolder)) {
             fs.rmSync(authFolder, { recursive: true, force: true });
         }
+        if (isVercel) {
+            const io = getIo();
+            if (io) io.emit('creds_update', '');
+        }
+        sock = null;
         setTimeout(startWhatsAppBot, 2000);
       }
     } else if (connection === 'open') {
       emitLog('WhatsApp connected successfully!', 'info');
       emitStatus('connected');
       emitQR('');
+      if (isVercel) {
+          const credsString = getCreds();
+          if (credsString) {
+              const io = getIo();
+              if (io) io.emit('creds_update', credsString);
+          }
+      }
     }
   });
 

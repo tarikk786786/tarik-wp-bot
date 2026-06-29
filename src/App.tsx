@@ -141,6 +141,16 @@ export default function App() {
     fetch('/api/status')
         .then(res => res.json())
         .then(data => {
+            if (data.needsCreds) {
+                const creds = localStorage.getItem('wa_creds');
+                if (creds) {
+                    fetch('/api/auth/sync', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ creds })
+                    }).catch(console.error);
+                }
+            }
             setStatus(data.status);
             if (data.qr) setQrCode(data.qr);
         })
@@ -166,11 +176,29 @@ export default function App() {
       setLogs(prev => [...prev.slice(-99), log]);
     });
 
+    s.on('creds_update', (creds: string) => {
+        if (creds) {
+            localStorage.setItem('wa_creds', creds);
+        } else {
+            localStorage.removeItem('wa_creds');
+        }
+    });
+
     // Polling fallback for serverless environments (Vercel)
     const interval = setInterval(() => {
         fetch('/api/status')
             .then(res => res.json())
             .then(data => {
+                if (data.needsCreds) {
+                    const creds = localStorage.getItem('wa_creds');
+                    if (creds) {
+                        fetch('/api/auth/sync', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ creds })
+                        }).catch(console.error);
+                    }
+                }
                 setStatus(prev => {
                     // Update only if changed to avoid unnecessary renders
                     if (prev !== data.status && data.status) return data.status;
