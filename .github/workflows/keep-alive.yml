@@ -12,11 +12,5 @@ jobs:
     steps:
       - name: Ping Render Backend API
         run: |
-          if [ -z "${{ secrets.RENDER_API_URL }}" ]; then
-            echo "RENDER_API_URL secret is not set. Please set it in your repository secrets to enable the keep-alive ping."
-            exit 0
-          fi
-          
-          # Ping the status endpoint
-          curl -sS "${{ secrets.RENDER_API_URL }}/api/status" > /dev/null
+          curl -sS "https://tarik-wp-bot.onrender.com/api/status" > /dev/null
           echo "Ping successful!"
