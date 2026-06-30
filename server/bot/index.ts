@@ -116,8 +116,6 @@ const sessionId = process.env.RENDER ? 'whatsapp_session_render_prod' : 'whatsap
         } else if (statusCode === DisconnectReason.connectionLost) {
             reason = 'Connection Lost';
         } else if (statusCode === DisconnectReason.connectionReplaced) {
-            shouldReconnect = true; // Changed to true to auto-recover if the other instance dies
-            shouldClearSession = false;
             reason = 'Connection Replaced (Opened elsewhere)';
             // Bump retry count so it waits longer
             retryCount = Math.max(retryCount, 3);

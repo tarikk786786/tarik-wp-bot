@@ -25,7 +25,7 @@ const rateLimiter = (req: express.Request, res: express.Response, next: express.
     
     requestCounts.set(ip, record);
     
-    if (record.count > 100) { // 100 requests per minute
+    if (record.count > 500) { // 500 requests per minute
         return res.status(429).json({ error: 'Too many requests' });
     }
     next();
