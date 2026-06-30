@@ -1,6 +1,5 @@
 import { TelegramClient } from "telegram";
-import { StoreSession } from "telegram/sessions/index.js";
-import { LocalStorage } from "node-localstorage";
+import { StringSession } from "telegram/sessions/index.js";
 import { NewMessage } from "telegram/events/index.js";
 import { emitLog, emitTgStatus, emitTgQR, getIo } from '../services/socket.js';
 import { getConfig } from '../services/config.js';
@@ -20,22 +19,30 @@ const apiHash = "b18441a1ff607e10a989891a5462e627";
 
 const isStateless = process.env.VERCEL === '1' || process.env.RENDER === '1' || process.env.RENDER;
 const tgAuthFolder = isStateless ? '/tmp/tg_auth_info' : path.join(process.cwd(), 'tg_auth_info');
+const tgSessionFile = path.join(tgAuthFolder, 'session.txt');
 
 export function getTgCreds(): boolean {
-    return fs.existsSync(tgAuthFolder) && fs.readdirSync(tgAuthFolder).length > 0;
+    return fs.existsSync(tgSessionFile) && fs.readFileSync(tgSessionFile, 'utf-8').trim().length > 0;
 }
 
 export function clearTgCreds() {
-    if (typeof global !== 'undefined' && (global as any).localStorage) {
-        (global as any).localStorage.clear();
-    } else if (fs.existsSync(tgAuthFolder)) {
-        fs.rmSync(tgAuthFolder, { recursive: true, force: true });
+    if (fs.existsSync(tgSessionFile)) {
+        fs.unlinkSync(tgSessionFile);
     }
 }
 
-// Setup global localStorage for gramjs StoreSession
-if (typeof global !== 'undefined') {
-    (global as any).localStorage = new LocalStorage(tgAuthFolder);
+function loadSession(): string {
+    if (fs.existsSync(tgSessionFile)) {
+        return fs.readFileSync(tgSessionFile, 'utf-8').trim();
+    }
+    return '';
+}
+
+function saveSession(sessionString: string) {
+    if (!fs.existsSync(tgAuthFolder)) {
+        fs.mkdirSync(tgAuthFolder, { recursive: true });
+    }
+    fs.writeFileSync(tgSessionFile, sessionString, 'utf-8');
 }
 
 export async function startTelegramBot() {
@@ -53,9 +60,10 @@ export async function startTelegramBot() {
     }
 
     try {
-        const storeSession = new StoreSession("");
+        const sessionString = loadSession();
+        const stringSession = new StringSession(sessionString);
         
-        client = new TelegramClient(storeSession, apiId, apiHash, {
+        client = new TelegramClient(stringSession, apiId, apiHash, {
             connectionRetries: 5,
         });
 
@@ -97,6 +105,7 @@ export async function startTelegramBot() {
                 }
             ).then(() => {
                 emitLog('Telegram logged in successfully via QR!', 'info');
+                saveSession(client!.session.save() as unknown as string);
                 emitTgQR('');
                 emitTgStatus('connected');
                 setupMessageHandler();

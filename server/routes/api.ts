@@ -145,10 +145,9 @@ router.post('/bot/tg-logout', (req, res) => {
   stopTelegramBot();
   const isStateless = process.env.VERCEL === '1' || process.env.VERCEL === 'true' || process.env.RENDER === '1' || process.env.RENDER === 'true' || process.env.RENDER;
   const tgAuthFolder = isStateless ? '/tmp/tg_auth_info' : path.join(process.cwd(), 'tg_auth_info');
-  if (typeof global !== 'undefined' && (global as any).localStorage) {
-    (global as any).localStorage.clear();
-  } else if (fs.existsSync(tgAuthFolder)) {
-    fs.rmSync(tgAuthFolder, { recursive: true, force: true });
+  const tgSessionFile = path.join(tgAuthFolder, 'session.txt');
+  if (fs.existsSync(tgSessionFile)) {
+    fs.unlinkSync(tgSessionFile);
   }
   emitLog('Telegram logged out and cleared auth data', 'warn');
   

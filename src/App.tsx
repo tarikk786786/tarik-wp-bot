@@ -444,6 +444,23 @@ export default function App() {
                         Unlink Bot
                       </button>
                     </div>
+                  ) : tgStatus === 'disconnected' ? (
+                    <div className="flex flex-col items-center gap-4 text-slate-400 mt-4 text-center">
+                      <div className="bg-slate-800/50 p-4 rounded-full">
+                        <Bot className="w-8 h-8 opacity-50" />
+                      </div>
+                      <p className="font-medium tracking-wide text-sm">Bot Disconnected</p>
+                      <p className="text-xs text-rose-400/80 mb-2">If you use 2FA, please set your password in Settings.</p>
+                      <button 
+                        onClick={async () => {
+                          setTgStatus('initializing');
+                          await fetch('/api/bot/restart', { method: 'POST' });
+                        }}
+                        className="px-5 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-xs font-semibold transition-colors shadow-lg shadow-blue-500/20"
+                      >
+                        Restart Bot
+                      </button>
+                    </div>
                   ) : (
                     <div className="flex flex-col items-center gap-4 text-slate-500 animate-pulse mt-4">
                       <Cpu className="w-10 h-10" />
