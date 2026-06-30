@@ -153,7 +153,17 @@ export default function App() {
   useEffect(() => {
     // Initial fetch
     fetch('/api/status')
-        .then(res => res.json())
+        .then(async res => {
+            const contentType = res.headers.get('content-type');
+            if (!res.ok || !contentType || !contentType.includes('application/json')) {
+                const text = await res.text();
+                if (text.includes('Vercel')) {
+                    setLogs(prev => [...prev.slice(-99), { message: 'Vercel Authentication required. Please log in to Vercel.', level: 'error', timestamp: new Date().toISOString() }]);
+                }
+                throw new Error("Invalid response from server");
+            }
+            return res.json();
+        })
         .then(data => {
             if (data.creds) {
                 const currentCreds = localStorage.getItem('wa_creds');
@@ -174,7 +184,10 @@ export default function App() {
             setStatus(data.status);
             if (data.tgStatus) setTgStatus(data.tgStatus);
             if (data.qr) setQrCode(data.qr);
-            if (data.tgQr) setTgQrCode(data.tgQr);
+            if (data.tgQr) {
+              setTgQrCode(data.tgQr.image);
+              setTgQrUrl(data.tgQr.url);
+            }
         })
         .catch(console.error);
 
@@ -227,6 +240,15 @@ export default function App() {
         if (!isPolling) return;
         try {
             const res = await fetch('/api/status');
+            const contentType = res.headers.get('content-type');
+            if (!res.ok || !contentType || !contentType.includes('application/json')) {
+                const text = await res.text();
+                if (text.includes('Vercel')) {
+                    setLogs(prev => [...prev.slice(-99), { message: 'Vercel Authentication required. Please log in to Vercel.', level: 'error', timestamp: new Date().toISOString() }]);
+                    isPolling = false; // Stop polling if blocked by Vercel Auth
+                }
+                return;
+            }
             const data = await res.json();
             if (data.creds) {
                 const currentCreds = localStorage.getItem('wa_creds');

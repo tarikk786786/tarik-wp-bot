@@ -19,7 +19,9 @@ export interface BotConfig {
     smartAutoReply: boolean;
 }
 
-const configPath = path.join(process.cwd(), 'bot_config.json');
+const isServerless = process.env.VERCEL === '1' || process.env.VERCEL === 'true' || !!process.env.RENDER;
+const baseConfigPath = path.join(process.cwd(), 'bot_config.json');
+const tmpConfigPath = '/tmp/bot_config.json';
 
 const defaultConfig: BotConfig = {
     botEnabled: true,
@@ -40,8 +42,9 @@ const defaultConfig: BotConfig = {
 
 export function getConfig(): BotConfig {
     try {
-        if (fs.existsSync(configPath)) {
-            const data = fs.readFileSync(configPath, 'utf8');
+        const targetPath = (isServerless && fs.existsSync(tmpConfigPath)) ? tmpConfigPath : baseConfigPath;
+        if (fs.existsSync(targetPath)) {
+            const data = fs.readFileSync(targetPath, 'utf8');
             return { ...defaultConfig, ...JSON.parse(data) };
         }
     } catch (e) {
@@ -53,6 +56,11 @@ export function getConfig(): BotConfig {
 export function saveConfig(config: Partial<BotConfig>) {
     const current = getConfig();
     const updated = { ...current, ...config };
-    fs.writeFileSync(configPath, JSON.stringify(updated, null, 2), 'utf8');
+    try {
+        const targetPath = isServerless ? tmpConfigPath : baseConfigPath;
+        fs.writeFileSync(targetPath, JSON.stringify(updated, null, 2), 'utf8');
+    } catch(e) {
+        console.error("Failed to save config:", e);
+    }
     return updated;
 }
