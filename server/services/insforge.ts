@@ -10,7 +10,7 @@ if (!key) {
   console.warn('INSFORGE_KEY is not set in environment variables. Database operations will fail.');
 }
 
-class QueryBuilder {
+class QueryBuilder implements PromiseLike<any> {
   constructor(private table: string) {}
   private method: string = 'GET';
   private params = new URLSearchParams();
@@ -36,22 +36,46 @@ class QueryBuilder {
   eq(col: string, val: any) { this.params.append(col, `eq.${val}`); return this; }
   neq(col: string, val: any) { this.params.append(col, `neq.${val}`); return this; }
   lt(col: string, val: any) { this.params.append(col, `lt.${val}`); return this; }
+  single() { return this.maybeSingle(); }
+  order(col: string, opts?: { ascending?: boolean }) {
+    this.params.append('order', `${col}.${opts?.ascending === false ? 'desc' : 'asc'}`);
+    return this;
+  }
+  range(from: number, to: number) {
+    this.headers['Range-Unit'] = 'items';
+    this.headers['Range'] = `${from}-${to}`;
+    return this;
+  }
   maybeSingle() {
     this.isSingle = true;
     this.headers['Accept'] = 'application/vnd.pgrst.object+json';
     return this;
   }
-  async then(resolve: any, reject: any) {
-    try {
-      const fullUrl = `${cleanUrl}/rest/v1/${this.table}${this.params.toString() ? '?' + this.params.toString() : ''}`;
-      const response = await fetch(fullUrl, { method: this.method, headers: this.headers, body: this.bodyData ? JSON.stringify(this.bodyData) : undefined });
+  then<TResult1 = any, TResult2 = never>(
+    onfulfilled?: ((value: any) => TResult1 | PromiseLike<TResult1>) | null,
+    onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null
+  ): Promise<TResult1 | TResult2> {
+    const fullUrl = `${cleanUrl}/api/database/records/${this.table}${this.params.toString() ? '?' + this.params.toString() : ''}`;
+    
+    return fetch(fullUrl, { 
+      method: this.method, 
+      headers: this.headers, 
+      body: this.bodyData ? JSON.stringify(this.bodyData) : undefined 
+    })
+    .then(async (response) => {
       if (!response.ok) {
-        if (response.status === 406 && this.isSingle) { resolve({ data: null, error: null }); return; }
+        if (response.status === 406 && this.isSingle) {
+          return { data: null, error: null };
+        }
         throw new Error(await response.text());
       }
       const text = await response.text();
-      resolve({ data: text ? JSON.parse(text) : null, error: null });
-    } catch (error) { resolve({ data: null, error }); }
+      return { data: text ? JSON.parse(text) : null, error: null };
+    })
+    .catch(error => {
+      return { data: null, error };
+    })
+    .then(onfulfilled, onrejected);
   }
 }
 
