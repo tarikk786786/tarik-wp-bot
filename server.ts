@@ -66,16 +66,16 @@ if (!isServerless) {
 }
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
-  stopWhatsAppBot();
+process.on('SIGTERM', async () => {
+  await stopWhatsAppBot();
   stopTelegramBot();
   httpServer.close(() => {
     process.exit(0);
   });
 });
 
-process.on('SIGINT', () => {
-  stopWhatsAppBot();
+process.on('SIGINT', async () => {
+  await stopWhatsAppBot();
   stopTelegramBot();
   httpServer.close(() => {
     process.exit(0);

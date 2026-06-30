@@ -3,9 +3,10 @@ import { stopWhatsAppBot, startWhatsAppBot, getCreds, setCreds } from '../bot/in
 import { startTelegramBot, stopTelegramBot } from '../bot/telegram.js';
 import fs from 'fs';
 import path from 'path';
-import { emitLog, emitStatus, getCurrentStatus, getCurrentQr, getCurrentTgStatus, getCurrentTgQr } from '../services/socket.js';
+import { emitLog, emitStatus, getCurrentStatus, getCurrentStatusData, getCurrentQr, getCurrentTgStatus, getCurrentTgStatusData, getCurrentTgQr } from '../services/socket.js';
 import { getConfig, saveConfig } from '../services/config.js';
 import { clearAllMemory } from '../services/memory.js';
+import { deleteExpiredBackups } from '../services/storage.js';
 
 const router = express.Router();
 
@@ -33,11 +34,10 @@ const rateLimiter = (req: express.Request, res: express.Response, next: express.
 
 router.use(rateLimiter);
 
-const isServerless = process.env.VERCEL === '1' || process.env.VERCEL === 'true';
-const isStateless = isServerless || process.env.RENDER === '1' || process.env.RENDER === 'true' || process.env.RENDER;
+const isVercel = process.env.VERCEL === '1' || process.env.VERCEL === 'true';
 
 router.use((req, res, next) => {
-  if (isServerless) {
+  if (isVercel) {
     // Start bot asynchronously on any API request if not already starting
     startWhatsAppBot().catch(console.error);
   }
@@ -45,12 +45,22 @@ router.use((req, res, next) => {
 });
 
 router.get('/health', (req, res) => {
-  res.json({ status: 'ok' });
+  res.json({ 
+    status: 'ok', 
+    whatsapp: {
+      status: getCurrentStatus(),
+      details: getCurrentStatusData() || null
+    },
+    telegram: {
+      status: getCurrentTgStatus(),
+      details: getCurrentTgStatusData() || null
+    }
+  });
 });
 
 router.get('/status', async (req, res) => {
   const startStatus = getCurrentStatus();
-  if (isServerless) {
+  if (isVercel) {
     // If bot is starting, keep request alive to give it CPU time
     if (!getCurrentQr() && (startStatus === 'initializing' || startStatus === 'disconnected')) {
       for (let i = 0; i < 30; i++) { // 3 seconds max
@@ -66,12 +76,14 @@ router.get('/status', async (req, res) => {
     }
   }
   res.json({ 
-      status: getCurrentStatus(), 
+      status: getCurrentStatus(),
+      statusDetails: getCurrentStatusData(),
       tgStatus: getCurrentTgStatus(),
+      tgStatusDetails: getCurrentTgStatusData(),
       tgQr: getCurrentTgQr(),
       qr: getCurrentQr(),
-      needsCreds: isStateless ? !getCreds() : false,
-      creds: isStateless ? getCreds() : null
+      needsCreds: isVercel ? !getCreds() : false,
+      creds: isVercel ? getCreds() : null
   });
 });
 
@@ -82,7 +94,7 @@ router.post('/auth/sync', express.json({ limit: '10mb' }), async (req, res) => {
       }
       startWhatsAppBot().catch(console.error);
       
-      if (isServerless) {
+      if (isVercel) {
           // Keep request alive for a few seconds to let connection establish
           for (let i = 0; i < 40; i++) {
               if (getCurrentStatus() === 'connected') break;
@@ -113,8 +125,8 @@ router.post('/config', (req, res) => {
   res.json(updated);
 });
 
-router.post('/bot/restart', (req, res) => {
-  stopWhatsAppBot();
+router.post('/bot/restart', async (req, res) => {
+  await stopWhatsAppBot();
   stopTelegramBot();
   setTimeout(() => {
     startWhatsAppBot();
@@ -123,14 +135,18 @@ router.post('/bot/restart', (req, res) => {
   res.json({ message: 'Restarting bot...' });
 });
 
-router.post('/bot/logout', (req, res) => {
-  stopWhatsAppBot();
+router.post('/bot/logout', async (req, res) => {
+  await stopWhatsAppBot();
   stopTelegramBot();
-  const isStateless = process.env.VERCEL === '1' || process.env.VERCEL === 'true' || process.env.RENDER === '1' || process.env.RENDER === 'true' || process.env.RENDER;
-  const authFolder = isStateless ? '/tmp/baileys_auth_info' : path.join(process.cwd(), 'baileys_auth_info');
+  const authFolder = isVercel ? '/tmp/baileys_auth_info' : path.join(process.cwd(), 'baileys_auth_info');
   if (fs.existsSync(authFolder)) {
     fs.rmSync(authFolder, { recursive: true, force: true });
   }
+  
+  deleteExpiredBackups().catch(e => {
+    emitLog(`Failed to delete GCS backups on logout: ${e.message}`, 'error');
+  });
+
   emitLog('Logged out and cleared auth data', 'warn');
   emitStatus('disconnected');
   
@@ -143,8 +159,7 @@ router.post('/bot/logout', (req, res) => {
 
 router.post('/bot/tg-logout', (req, res) => {
   stopTelegramBot();
-  const isStateless = process.env.VERCEL === '1' || process.env.VERCEL === 'true' || process.env.RENDER === '1' || process.env.RENDER === 'true' || process.env.RENDER;
-  const tgAuthFolder = isStateless ? '/tmp/tg_auth_info' : path.join(process.cwd(), 'tg_auth_info');
+  const tgAuthFolder = isVercel ? '/tmp/tg_auth_info' : path.join(process.cwd(), 'tg_auth_info');
   const tgSessionFile = path.join(tgAuthFolder, 'session.txt');
   if (fs.existsSync(tgSessionFile)) {
     fs.unlinkSync(tgSessionFile);

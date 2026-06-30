@@ -2,7 +2,9 @@ import { Server } from 'socket.io';
 
 let io: Server | null = null;
 let currentStatus = 'initializing';
+let currentStatusData: any = null;
 let currentTgStatus = 'disconnected';
+let currentTgStatusData: any = null;
 let currentQr = '';
 let currentTgQr: { image: string, url: string } | null = null;
 const logs: any[] = [];
@@ -25,7 +27,9 @@ export function initSocket(serverIo: Server) {
 }
 
 export function getCurrentStatus() { return currentStatus; }
+export function getCurrentStatusData() { return currentStatusData; }
 export function getCurrentTgStatus() { return currentTgStatus; }
+export function getCurrentTgStatusData() { return currentTgStatusData; }
 export function getCurrentQr() { return currentQr; }
 export function getCurrentTgQr() { return currentTgQr; }
 
@@ -35,6 +39,7 @@ export function getIo() {
 
 export function emitStatus(status: string, data?: any) {
   currentStatus = status;
+  currentStatusData = data;
   if (io) {
     io.emit('status', { status, data });
   }
@@ -42,6 +47,7 @@ export function emitStatus(status: string, data?: any) {
 
 export function emitTgStatus(status: string, data?: any) {
   currentTgStatus = status;
+  currentTgStatusData = data;
   if (io) {
     io.emit('tg_status', { status, data });
   }

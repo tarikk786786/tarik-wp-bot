@@ -132,7 +132,9 @@ Awaiting your command, User. What forbidden knowledge do you seek?`;
 export default function App() {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [status, setStatus] = useState<string>('initializing');
+  const [statusDetails, setStatusDetails] = useState<any>(null);
   const [tgStatus, setTgStatus] = useState<string>('disconnected');
+  const [tgStatusDetails, setTgStatusDetails] = useState<any>(null);
   const [qrCode, setQrCode] = useState<string>('');
   const [tgQrCode, setTgQrCode] = useState<string>('');
   const [tgQrUrl, setTgQrUrl] = useState<string>('');
@@ -182,7 +184,9 @@ export default function App() {
                 }
             }
             setStatus(data.status);
+            if (data.statusDetails !== undefined) setStatusDetails(data.statusDetails);
             if (data.tgStatus) setTgStatus(data.tgStatus);
+            if (data.tgStatusDetails !== undefined) setTgStatusDetails(data.tgStatusDetails);
             if (data.qr) setQrCode(data.qr);
             if (data.tgQr) {
               setTgQrCode(data.tgQr.image);
@@ -201,10 +205,12 @@ export default function App() {
 
     s.on('status', (data) => {
       setStatus(data.status);
+      setStatusDetails(data.data);
     });
 
     s.on('tg_status', (data) => {
       setTgStatus(data.status);
+      setTgStatusDetails(data.data);
     });
 
     s.on('qr', (qr) => {
@@ -274,10 +280,13 @@ export default function App() {
                 if (prev !== data.status && data.status) return data.status;
                 return prev;
             });
+            if (data.statusDetails !== undefined) setStatusDetails(data.statusDetails);
+            
             setTgStatus(prev => {
                 if (prev !== data.tgStatus && data.tgStatus) return data.tgStatus;
                 return prev;
             });
+            if (data.tgStatusDetails !== undefined) setTgStatusDetails(data.tgStatusDetails);
             if (data.qr) {
                 setQrCode(prev => prev !== data.qr ? data.qr : prev);
             }
@@ -435,9 +444,10 @@ export default function App() {
                     </button>
                   </div>
                 ) : (
-                  <div className="flex flex-col items-center gap-4 text-slate-500 animate-pulse mt-4">
+                  <div className="flex flex-col items-center gap-4 text-slate-500 animate-pulse mt-4 text-center">
                     <Cpu className="w-10 h-10" />
                     <p className="font-medium tracking-wide text-sm">Initializing Core Services...</p>
+                    {statusDetails && <p className="text-xs text-slate-400 font-mono mt-2 bg-slate-900/80 p-2 rounded max-w-[250px] break-words">{String(statusDetails)}</p>}
                   </div>
                 )}
               </div>
@@ -485,6 +495,7 @@ export default function App() {
                         <Bot className="w-8 h-8 opacity-50" />
                       </div>
                       <p className="font-medium tracking-wide text-sm">Bot Disconnected</p>
+                      {tgStatusDetails && <p className="text-xs text-rose-400 font-mono mt-1 bg-slate-900/80 p-2 rounded max-w-[250px] break-words">{String(tgStatusDetails)}</p>}
                       <p className="text-xs text-rose-400/80 mb-2">If you use 2FA, please set your password in Settings.</p>
                       <button 
                         onClick={async () => {
@@ -497,9 +508,10 @@ export default function App() {
                       </button>
                     </div>
                   ) : (
-                    <div className="flex flex-col items-center gap-4 text-slate-500 animate-pulse mt-4">
+                    <div className="flex flex-col items-center gap-4 text-slate-500 animate-pulse mt-4 text-center">
                       <Cpu className="w-10 h-10" />
                       <p className="font-medium tracking-wide text-sm">Initializing Telegram Bot...</p>
+                      {tgStatusDetails && <p className="text-xs text-slate-400 font-mono mt-2 bg-slate-900/80 p-2 rounded max-w-[250px] break-words">{String(tgStatusDetails)}</p>}
                     </div>
                   )}
                 </div>

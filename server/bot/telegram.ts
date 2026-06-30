@@ -17,8 +17,8 @@ const MAX_PROCESSED = 1000;
 const apiId = 2040;
 const apiHash = "b18441a1ff607e10a989891a5462e627";
 
-const isStateless = process.env.VERCEL === '1' || process.env.RENDER === '1' || process.env.RENDER;
-const tgAuthFolder = isStateless ? '/tmp/tg_auth_info' : path.join(process.cwd(), 'tg_auth_info');
+const isVercel = process.env.VERCEL === '1' || process.env.VERCEL === 'true';
+const tgAuthFolder = isVercel ? '/tmp/tg_auth_info' : path.join(process.cwd(), 'tg_auth_info');
 const tgSessionFile = path.join(tgAuthFolder, 'session.txt');
 
 export function getTgCreds(): boolean {
