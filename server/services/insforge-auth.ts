@@ -3,13 +3,40 @@ import { insforge } from './insforge.js';
 
 export const useInsForgeAuthState = async (sessionId: string): Promise<{ state: AuthenticationState, saveCreds: () => Promise<void>, removeCreds: () => Promise<void> }> => {
 
-    const writeData = async (data: any, key: string) => {
-        const dataString = JSON.stringify(data, BufferJSON.replacer);
+    const cache = new Map<string, any>();
+
+    const writeDataBatch = async (items: {key: string, data: any}[]) => {
+        if (items.length === 0) return;
+        const rows = items.map(item => {
+            cache.set(item.key, item.data);
+            return {
+                session_id: sessionId,
+                key: item.key,
+                data: JSON.stringify(item.data, BufferJSON.replacer)
+            };
+        });
+        // Upsert all in one request
         await insforge.database.from('whatsapp_sessions')
-            .upsert([{ session_id: sessionId, key, data: dataString }], { onConflict: 'session_id,key' });
+            .upsert(rows, { onConflict: 'session_id,key' });
+    };
+
+    const removeDataBatch = async (keys: string[]) => {
+        if (keys.length === 0) return;
+        keys.forEach(k => cache.delete(k));
+        await insforge.database.from('whatsapp_sessions')
+            .delete()
+            .eq('session_id', sessionId)
+            .in('key', keys);
+    };
+
+    const writeData = async (data: any, key: string) => {
+        await writeDataBatch([{key, data}]);
     };
 
     const readData = async (key: string) => {
+        if (cache.has(key)) {
+            return cache.get(key);
+        }
         const { data, error } = await insforge.database.from('whatsapp_sessions')
             .select('data')
             .eq('session_id', sessionId)
@@ -17,19 +44,19 @@ export const useInsForgeAuthState = async (sessionId: string): Promise<{ state: 
             .maybeSingle();
             
         if (data && data.data) {
-            return JSON.parse(data.data, BufferJSON.reviver);
+            const parsed = JSON.parse(data.data, BufferJSON.reviver);
+            cache.set(key, parsed);
+            return parsed;
         }
         return null;
     };
 
     const removeData = async (key: string) => {
-        await insforge.database.from('whatsapp_sessions')
-            .delete()
-            .eq('session_id', sessionId)
-            .eq('key', key);
+        await removeDataBatch([key]);
     };
 
     const removeCreds = async () => {
+        cache.clear();
         await insforge.database.from('whatsapp_sessions')
             .delete()
             .eq('session_id', sessionId);
@@ -55,15 +82,25 @@ export const useInsForgeAuthState = async (sessionId: string): Promise<{ state: 
                     return data;
                 },
                 set: async (data) => {
-                    const tasks: Promise<void>[] = [];
+                    const toWrite: {key: string, data: any}[] = [];
+                    const toRemove: string[] = [];
+                    
                     for (const category in data) {
                         for (const id in data[category as keyof typeof data]) {
                             const value = data[category as keyof typeof data]?.[id];
                             const key = `${category}-${id}`;
-                            tasks.push(value ? writeData(value, key) : removeData(key));
+                            if (value) {
+                                toWrite.push({key, data: value});
+                            } else {
+                                toRemove.push(key);
+                            }
                         }
                     }
-                    await Promise.all(tasks);
+                    
+                    await Promise.all([
+                        writeDataBatch(toWrite),
+                        removeDataBatch(toRemove)
+                    ]);
                 }
             }
         },

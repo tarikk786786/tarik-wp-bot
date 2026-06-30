@@ -2,7 +2,7 @@ import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
 import { NewMessage } from "telegram/events/index.js";
 import { emitLog, emitTgStatus, emitTgQR, clearTgQR, getIo } from '../services/socket.js';
-import { getConfig } from '../services/config.js';
+import { getConfig, getSystemPrompt } from '../services/config.js';
 import { processMessageWithGemini } from '../services/gemini.js';
 import { telegramQueue } from './telegramQueue.js';
 import QRCode from 'qrcode';
@@ -203,6 +203,22 @@ function setupMessageHandler() {
             const textMessage = msg.text || msg.message;
             const isMedia = !!msg.media;
             
+            if (textMessage) {
+                const text = textMessage.trim();
+                if (text === '!ping') {
+                    await telegramQueue.enqueue(chatId, 'Pong! 🏓 Bot is active.', { replyTo: msg.id });
+                    return;
+                } else if (text === '!clear') {
+                    try {
+                        await insforge.database.from('ai_memory').delete().eq('user_id', `tg-${chatId}`);
+                        await telegramQueue.enqueue(chatId, 'Memory cleared for this chat. 🧹', { replyTo: msg.id });
+                    } catch(e) {
+                        await telegramQueue.enqueue(chatId, 'Failed to clear memory.', { replyTo: msg.id });
+                    }
+                    return;
+                }
+            }
+
             if (!textMessage && !isMedia) {
                 return;
             }
@@ -213,7 +229,7 @@ function setupMessageHandler() {
                 await new Promise(resolve => setTimeout(resolve, currentConfig.replyDelayMs));
             }
 
-            const finalInstruction = `${currentConfig.systemInstruction}\n\nStrict Constraints:\n- Mood/Persona: ${currentConfig.replyMood}\n- Language: ${currentConfig.replyLanguage === 'Auto-detect' ? 'Respond in the language the user speaks to you.' : 'You MUST respond in ' + currentConfig.replyLanguage + '.'}`;
+            const finalInstruction = getSystemPrompt(senderNumber);
             
             let overrideMedia;
             if (isMedia && client) {
