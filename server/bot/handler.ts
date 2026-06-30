@@ -96,10 +96,12 @@ export async function handleIncomingMessage(sock: WASocket, msg: WAMessage) {
                         actualMessage.documentMessage?.caption ||
                         actualMessage.videoMessage?.caption;
 
+    const messageOptions = jid.endsWith('@lid') ? undefined : { quoted: msg };
+
     if (textMessage) {
         const text = textMessage.trim();
         if (text === '!ping') {
-            await messageQueue.enqueue(jid, { text: 'Pong! 🏓 Bot is active.' }, { quoted: msg });
+            await messageQueue.enqueue(jid, { text: 'Pong! 🏓 Bot is active.' }, messageOptions);
             return;
         } else if (text === '!clear') {
             import('../services/memory.js').then(async ({ getChatHistory, addToChatHistory, clearAllMemory }) => {
@@ -107,9 +109,9 @@ export async function handleIncomingMessage(sock: WASocket, msg: WAMessage) {
                     // Just clear for this user
                     const { insforge } = await import('../services/insforge.js');
                     await insforge.database.from('ai_memory').delete().eq('user_id', jid);
-                    await messageQueue.enqueue(jid, { text: 'Memory cleared for this chat. 🧹' }, { quoted: msg });
+                    await messageQueue.enqueue(jid, { text: 'Memory cleared for this chat. 🧹' }, messageOptions);
                 } catch(e) {
-                    await messageQueue.enqueue(jid, { text: 'Failed to clear memory.' }, { quoted: msg });
+                    await messageQueue.enqueue(jid, { text: 'Failed to clear memory.' }, messageOptions);
                 }
             });
             return;
@@ -139,9 +141,12 @@ export async function handleIncomingMessage(sock: WASocket, msg: WAMessage) {
     const finalInstruction = getSystemPrompt(senderNumber);
     const replyText = await processMessageWithGemini(jid, textMessage || '', actualMessage, finalInstruction);
 
+    // Meta/Baileys drops LIDs when quoted:msg is included because of decryption mismatches. 
+    // We send a plain, unquoted message for LIDs as a workaround.
+
     if (replyText) {
         try {
-            await messageQueue.enqueue(jid, { text: replyText }, { quoted: msg });
+            await messageQueue.enqueue(jid, { text: replyText }, messageOptions);
             emitLog(`Replied to ${senderNumber}`, 'info');
         } catch (e: any) {
             emitLog(`Final failure sending reply to ${senderNumber}: ${e.message}`, 'error');
