@@ -1,7 +1,7 @@
 import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
 import { NewMessage } from "telegram/events/index.js";
-import { emitLog, emitTgStatus, emitTgQR, getIo } from '../services/socket.js';
+import { emitLog, emitTgStatus, emitTgQR, clearTgQR, getIo } from '../services/socket.js';
 import { getConfig } from '../services/config.js';
 import { processMessageWithGemini } from '../services/gemini.js';
 import { telegramQueue } from './telegramQueue.js';
@@ -87,7 +87,7 @@ export async function startTelegramBot() {
                         const qrUrl = `tg://login?token=${tokenString}`;
                         try {
                             const qrDataURL = await QRCode.toDataURL(qrUrl);
-                            emitTgQR(qrDataURL);
+                            emitTgQR(qrDataURL, qrUrl);
                             emitLog('Telegram QR code generated.', 'info');
                         } catch(e) {
                             emitLog('Failed to generate Telegram QR', 'error');
@@ -106,11 +106,12 @@ export async function startTelegramBot() {
             ).then(() => {
                 emitLog('Telegram logged in successfully via QR!', 'info');
                 saveSession(client!.session.save() as unknown as string);
-                emitTgQR('');
+                clearTgQR();
                 emitTgStatus('connected');
                 setupMessageHandler();
             }).catch(err => {
                 emitLog(`Telegram Auth failed: ${err.message}`, 'error');
+                clearTgQR();
                 emitTgStatus('disconnected', err.message);
                 client = null;
             });
@@ -124,6 +125,7 @@ export async function startTelegramBot() {
 
     } catch (err: any) {
         emitLog(`Failed to start Telegram client: ${err.message}`, 'error');
+        clearTgQR();
         emitTgStatus('disconnected', err.message);
         client = null;
     }

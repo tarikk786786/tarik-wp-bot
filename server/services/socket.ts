@@ -4,7 +4,7 @@ let io: Server | null = null;
 let currentStatus = 'initializing';
 let currentTgStatus = 'disconnected';
 let currentQr = '';
-let currentTgQr = '';
+let currentTgQr: { image: string, url: string } | null = null;
 const logs: any[] = [];
 
 export function initSocket(serverIo: Server) {
@@ -64,9 +64,17 @@ export function emitQR(qr: string) {
   }
 }
 
-export function emitTgQR(qr: string) {
-  currentTgQr = qr;
+export function emitTgQR(qrImage: string, qrUrl: string) {
+  const payload = { image: qrImage, url: qrUrl };
+  currentTgQr = payload;
   if (io) {
-    io.emit('tg_qr', qr);
+    io.emit('tg_qr', payload);
+  }
+}
+
+export function clearTgQR() {
+  currentTgQr = null;
+  if (io) {
+    io.emit('tg_qr', null);
   }
 }

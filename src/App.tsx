@@ -135,6 +135,7 @@ export default function App() {
   const [tgStatus, setTgStatus] = useState<string>('disconnected');
   const [qrCode, setQrCode] = useState<string>('');
   const [tgQrCode, setTgQrCode] = useState<string>('');
+  const [tgQrUrl, setTgQrUrl] = useState<string>('');
   const [logs, setLogs] = useState<Log[]>([]);
   const logsEndRef = useRef<HTMLDivElement>(null);
   
@@ -197,8 +198,14 @@ export default function App() {
       setQrCode(qr);
     });
 
-    s.on('tg_qr', (qr) => {
-      setTgQrCode(qr);
+    s.on('tg_qr', (qrData) => {
+      if (qrData) {
+        setTgQrCode(qrData.image);
+        setTgQrUrl(qrData.url);
+      } else {
+        setTgQrCode('');
+        setTgQrUrl('');
+      }
     });
 
     s.on('log', (log: Log) => {
@@ -253,7 +260,11 @@ export default function App() {
                 setQrCode(prev => prev !== data.qr ? data.qr : prev);
             }
             if (data.tgQr) {
-                setTgQrCode(prev => prev !== data.tgQr ? data.tgQr : prev);
+                setTgQrCode(prev => prev !== data.tgQr?.image ? data.tgQr?.image : prev);
+                setTgQrUrl(prev => prev !== data.tgQr?.url ? data.tgQr?.url : prev);
+            } else {
+                setTgQrCode('');
+                setTgQrUrl('');
             }
         } catch (e) {
             // Quietly ignore network errors during polling (e.g. server restart)
@@ -417,11 +428,13 @@ export default function App() {
                   {tgStatus === 'awaiting_auth' && tgQrCode ? (
                     <div className="flex flex-col items-center gap-5 animate-in fade-in zoom-in duration-500 mt-4 w-full">
                       <div className="bg-white p-3 rounded-2xl shadow-xl ring-1 ring-slate-900/5">
-                        <img src={tgQrCode} alt="Telegram QR Code" className="w-48 h-48 rounded-lg" />
+                        <a href={tgQrUrl || '#'} target="_blank" rel="noreferrer" title="Click to log in with Telegram desktop">
+                          <img src={tgQrCode} alt="Telegram QR Code" className="w-48 h-48 rounded-lg cursor-pointer hover:opacity-80 transition-opacity" />
+                        </a>
                       </div>
                       <div className="text-center space-y-2">
                         <p className="text-blue-400 font-medium flex items-center gap-2 justify-center bg-blue-400/10 px-3 py-1 rounded-full text-sm border border-blue-400/20">
-                          <QrCode className="w-4 h-4" /> Scan with Telegram
+                          <QrCode className="w-4 h-4" /> Scan or Click Image
                         </p>
                         <p className="text-xs text-slate-400">Settings {'>'} Devices {'>'} Link Desktop Device</p>
                       </div>
