@@ -46,7 +46,8 @@ export async function startWhatsAppBot() {
   }
 
   try {
-    const sessionId = 'default_whatsapp_session';
+    // Generate a unique session ID based on environment to prevent local dev vs Render collision
+const sessionId = process.env.RENDER ? 'whatsapp_session_render_prod' : 'whatsapp_session_local_dev';
     const { state, saveCreds, removeCreds } = await useInsForgeAuthState(sessionId);
     currentSaveCreds = saveCreds;
     currentRemoveCreds = removeCreds;
