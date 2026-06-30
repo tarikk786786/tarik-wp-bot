@@ -5,6 +5,7 @@ import fs from 'fs';
 import { emitStatus, emitLog, emitQR } from '../services/socket.js';
 import { whatsappAuthDir } from '../services/runtime.js';
 import { handleIncomingMessage } from './handler.js';
+import { envNumber, errorStatus, shouldPauseConnection } from './safety.js';
 
 let sock: ReturnType<typeof makeWASocket> | null = null;
 let startPromise: Promise<void> | null = null;
@@ -96,11 +97,23 @@ async function connect(run: number) {
     emitStatus('disconnected');
     emitLog(`WhatsApp connection closed (${statusCode || 'unknown'}): ${error?.message || 'unknown'}`, 'warn');
 
-    if (loggedOut) {
+    if (shouldPauseConnection(statusCode)) {
       retryCount = 0;
-      void fs.promises.rm(whatsappAuthDir, { recursive: true, force: true }).finally(() => scheduleReconnect(run, 2_000));
+      emitStatus('paused', { reason: statusCode });
+      emitLog('WhatsApp reconnect paused to protect the account. Check the phone/account before using Restart.', 'error');
+    } else if (loggedOut) {
+      retryCount = 0;
+      emitStatus('paused', { reason: statusCode });
+      emitLog('WhatsApp logged out. Authentication was cleared; use Restart when the account is ready to link again.', 'error');
+      void fs.promises.rm(whatsappAuthDir, { recursive: true, force: true });
     } else {
       retryCount += 1;
+      const maximum = envNumber('WA_MAX_RECONNECT_ATTEMPTS', 6, 1, 20);
+      if (retryCount > maximum) {
+        emitStatus('paused', { reason: 'reconnect_limit' });
+        emitLog(`WhatsApp reconnect paused after ${maximum} failures. Use Restart after checking account status and network.`, 'error');
+        return;
+      }
       const backoff = Math.min(1_000 * 2 ** Math.min(retryCount, 5), 30_000);
       scheduleReconnect(run, backoff + Math.floor(Math.random() * 1_000));
     }
@@ -123,6 +136,12 @@ export function startWhatsAppBot() {
   emitStatus('initializing');
   const pending = connect(run).catch((error) => {
     if (run !== generation) return;
+    const status = errorStatus(error);
+    if (shouldPauseConnection(status) || status === DisconnectReason.loggedOut) {
+      emitStatus('paused', { reason: status });
+      emitLog(`WhatsApp startup paused after a non-retryable error (${status || 'unknown'}).`, 'error');
+      return;
+    }
     retryCount += 1;
     emitStatus('disconnected');
     emitLog(`Failed to start WhatsApp bot: ${error.message}`, 'error');

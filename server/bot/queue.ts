@@ -1,6 +1,7 @@
 import { AnyMessageContent, proto } from '@whiskeysockets/baileys';
 import { emitLog } from '../services/socket.js';
 import { getSock } from './index.js';
+import { envNumber, shouldRetrySend } from './safety.js';
 
 interface QueueItem {
   jid: string;
@@ -10,11 +11,6 @@ interface QueueItem {
   resolve: (value: unknown) => void;
   reject: (reason?: unknown) => void;
 }
-
-const numberFromEnv = (name: string, fallback: number, min: number, max: number) => {
-  const value = Number(process.env[name]);
-  return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
-};
 
 class MessageQueue {
   private queue: QueueItem[] = [];
@@ -26,15 +22,15 @@ class MessageQueue {
 
   private get limits() {
     return {
-      perMinute: numberFromEnv('WA_MAX_MSG_PER_MINUTE', 20, 1, 100),
-      perHour: numberFromEnv('WA_MAX_MSG_PER_HOUR', 500, 1, 5_000),
-      baseDelayMs: numberFromEnv('WA_BASE_DELAY_MS', 1_500, 0, 60_000),
-      randomDelayMs: numberFromEnv('WA_RANDOM_DELAY_MS', 2_000, 0, 60_000),
+      perMinute: envNumber('WA_MAX_MSG_PER_MINUTE', 6, 1, 20),
+      perHour: envNumber('WA_MAX_MSG_PER_HOUR', 100, 1, 500),
+      baseDelayMs: envNumber('WA_BASE_DELAY_MS', 3_000, 1_000, 60_000),
+      randomDelayMs: envNumber('WA_RANDOM_DELAY_MS', 4_000, 0, 60_000),
     };
   }
 
   enqueue(jid: string, message: AnyMessageContent, options?: { quoted?: proto.IWebMessageInfo }) {
-    if (this.queue.length >= 500) return Promise.reject(new Error('WhatsApp message queue is full'));
+    if (this.queue.length >= envNumber('WA_MAX_QUEUE_SIZE', 100, 10, 500)) return Promise.reject(new Error('WhatsApp message queue is full'));
     return new Promise((resolve, reject) => {
       this.queue.push({ jid, message, options, retries: 0, resolve, reject });
       void this.process();
@@ -59,17 +55,12 @@ class MessageQueue {
         const item = this.queue.shift()!;
         try {
           await this.delay(this.limits.baseDelayMs + Math.random() * this.limits.randomDelayMs);
-          try {
-            await socket.sendPresenceUpdate('composing', item.jid);
-            await this.delay(500 + Math.random() * 1_000);
-            await socket.sendPresenceUpdate('paused', item.jid);
-          } catch {}
           const result = await socket.sendMessage(item.jid, item.message, item.options);
           this.sentMinute += 1;
           this.sentHour += 1;
           item.resolve(result);
         } catch (error) {
-          if (item.retries++ < 3) {
+          if (shouldRetrySend(error) && item.retries++ < 2) {
             await this.delay(1_000 * 2 ** item.retries);
             this.queue.unshift(item);
           } else {

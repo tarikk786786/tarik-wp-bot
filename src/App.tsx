@@ -169,10 +169,10 @@ export default function App() {
           <div className="flex items-center gap-2 bg-slate-900/50 px-4 py-2 rounded-lg border border-slate-800 text-sm shadow-sm backdrop-blur-sm">
             <div className={`w-2 h-2 rounded-full animate-pulse ${
               status === 'connected' ? 'bg-emerald-500' : 
-              status === 'qr_ready' ? 'bg-amber-500' : 'bg-rose-500'
+              status === 'qr_ready' ? 'bg-amber-500' : status === 'paused' ? 'bg-rose-500' : 'bg-slate-500'
             }`}></div>
             <span className="font-medium text-slate-300">
-              {status === 'connected' ? 'Online' : status === 'qr_ready' ? 'Awaiting Scan' : 'Initializing'}
+              {status === 'connected' ? 'Online' : status === 'qr_ready' ? 'Awaiting Scan' : status === 'paused' ? 'Safety Paused' : 'Initializing'}
             </span>
           </div>
 
@@ -216,6 +216,12 @@ export default function App() {
                     >
                       Unlink Device
                     </button>
+                  </div>
+                ) : status === 'paused' ? (
+                  <div className="flex flex-col items-center gap-4 text-rose-400 mt-4 text-center">
+                    <ShieldAlert className="w-12 h-12" />
+                    <h2 className="text-xl font-bold tracking-wide">ACCOUNT SAFETY PAUSE</h2>
+                    <p className="text-sm text-slate-400 max-w-xs">Automatic reconnects stopped. Check WhatsApp on the phone, wait for any restriction to clear, then restart manually.</p>
                   </div>
                 ) : (
                   <div className="flex flex-col items-center gap-4 text-slate-500 animate-pulse mt-4">
