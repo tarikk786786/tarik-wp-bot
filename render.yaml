@@ -2,10 +2,23 @@ services:
   - type: web
     name: whatsapp-bot
     env: node
-    buildCommand: npm install && npm run build
+    buildCommand: npm ci && npm run build
     startCommand: npm start
+    healthCheckPath: /api/health
+    disk:
+      name: bot-data
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
       - key: GEMINI_API_KEY
         sync: false
       - key: VERCEL
         value: "0"
+      - key: DATA_DIR
+        value: /var/data
+      - key: ADMIN_TOKEN
+        sync: false
+      - key: TG_API_ID
+        sync: false
+      - key: TG_API_HASH
+        sync: false

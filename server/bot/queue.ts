@@ -3,124 +3,94 @@ import { emitLog } from '../services/socket.js';
 import { getSock } from './index.js';
 
 interface QueueItem {
-    jid: string;
-    message: AnyMessageContent;
-    options?: { quoted?: proto.IWebMessageInfo };
-    retries: number;
-    resolve: (value: any) => void;
-    reject: (reason?: any) => void;
+  jid: string;
+  message: AnyMessageContent;
+  options?: { quoted?: proto.IWebMessageInfo };
+  retries: number;
+  resolve: (value: unknown) => void;
+  reject: (reason?: unknown) => void;
 }
 
+const numberFromEnv = (name: string, fallback: number, min: number, max: number) => {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
+};
+
 class MessageQueue {
-    private queue: QueueItem[] = [];
-    private isProcessing = false;
-    private messagesSentLastMinute = 0;
-    private messagesSentLastHour = 0;
-    private lastMinuteReset = Date.now();
-    private lastHourReset = Date.now();
+  private queue: QueueItem[] = [];
+  private isProcessing = false;
+  private sentMinute = 0;
+  private sentHour = 0;
+  private minuteReset = Date.now();
+  private hourReset = Date.now();
 
-    // Configurable limits from env or defaults
-    private get limits() {
-        return {
-            perMinute: parseInt(process.env.WA_MAX_MSG_PER_MINUTE || '20', 10),
-            perHour: parseInt(process.env.WA_MAX_MSG_PER_HOUR || '500', 10),
-            baseDelayMs: parseInt(process.env.WA_BASE_DELAY_MS || '1500', 10),
-            randomDelayMs: parseInt(process.env.WA_RANDOM_DELAY_MS || '2000', 10),
-        };
-    }
+  private get limits() {
+    return {
+      perMinute: numberFromEnv('WA_MAX_MSG_PER_MINUTE', 20, 1, 100),
+      perHour: numberFromEnv('WA_MAX_MSG_PER_HOUR', 500, 1, 5_000),
+      baseDelayMs: numberFromEnv('WA_BASE_DELAY_MS', 1_500, 0, 60_000),
+      randomDelayMs: numberFromEnv('WA_RANDOM_DELAY_MS', 2_000, 0, 60_000),
+    };
+  }
 
-    public async enqueue(jid: string, message: AnyMessageContent, options?: { quoted?: proto.IWebMessageInfo }): Promise<any> {
-        return new Promise((resolve, reject) => {
-            this.queue.push({
-                jid,
-                message,
-                options,
-                retries: 0,
-                resolve,
-                reject
-            });
-            this.processQueue();
-        });
-    }
+  enqueue(jid: string, message: AnyMessageContent, options?: { quoted?: proto.IWebMessageInfo }) {
+    if (this.queue.length >= 500) return Promise.reject(new Error('WhatsApp message queue is full'));
+    return new Promise((resolve, reject) => {
+      this.queue.push({ jid, message, options, retries: 0, resolve, reject });
+      void this.process();
+    });
+  }
 
-    private async processQueue() {
-        if (this.isProcessing) return;
-        this.isProcessing = true;
-
-        while (this.queue.length > 0) {
-            const sock = getSock();
-            if (!sock) {
-                emitLog(`Socket not available, waiting...`, 'warn');
-                await this.delay(3000);
-                continue;
-            }
-
-            this.checkRateLimits();
-
-            if (this.messagesSentLastMinute >= this.limits.perMinute || this.messagesSentLastHour >= this.limits.perHour) {
-                emitLog(`Rate limit reached. Pausing message queue.`, 'warn');
-                await this.delay(5000); // Wait 5 seconds before checking again
-                continue;
-            }
-
-            const item = this.queue.shift();
-            if (!item) continue;
-
-            try {
-                // Human-like delay before sending
-                const delayMs = this.limits.baseDelayMs + Math.random() * this.limits.randomDelayMs;
-                await this.delay(delayMs);
-
-                // Send typing indicator
-                try {
-                    await sock.sendPresenceUpdate('composing', item.jid);
-                    // Slight delay while "typing"
-                    await this.delay(1000 + Math.random() * 1000);
-                    await sock.sendPresenceUpdate('paused', item.jid);
-                } catch (e) {
-                    // Ignore presence errors to avoid blocking sends
-                }
-
-                const result = await sock.sendMessage(item.jid, item.message, item.options);
-                
-                this.messagesSentLastMinute++;
-                this.messagesSentLastHour++;
-                
-                item.resolve(result);
-            } catch (error: any) {
-                emitLog(`Failed to send message to ${item.jid}: ${error.message}`, 'error');
-                
-                if (item.retries < 3) {
-                    item.retries++;
-                    const backoffDelay = Math.pow(2, item.retries) * 1000;
-                    emitLog(`Retrying message to ${item.jid} in ${backoffDelay}ms (Attempt ${item.retries})`, 'warn');
-                    await this.delay(backoffDelay);
-                    this.queue.unshift(item); // Put it back at the front
-                } else {
-                    emitLog(`Dropped message to ${item.jid} after 3 failed attempts`, 'error');
-                    item.reject(error);
-                }
-            }
+  private async process() {
+    if (this.isProcessing) return;
+    this.isProcessing = true;
+    try {
+      while (this.queue.length) {
+        this.resetCounters();
+        if (this.sentMinute >= this.limits.perMinute || this.sentHour >= this.limits.perHour) {
+          await this.delay(1_000);
+          continue;
         }
-
-        this.isProcessing = false;
-    }
-
-    private checkRateLimits() {
-        const now = Date.now();
-        if (now - this.lastMinuteReset > 60000) {
-            this.messagesSentLastMinute = 0;
-            this.lastMinuteReset = now;
+        const socket = getSock();
+        if (!socket) {
+          await this.delay(1_000);
+          continue;
         }
-        if (now - this.lastHourReset > 3600000) {
-            this.messagesSentLastHour = 0;
-            this.lastHourReset = now;
+        const item = this.queue.shift()!;
+        try {
+          await this.delay(this.limits.baseDelayMs + Math.random() * this.limits.randomDelayMs);
+          try {
+            await socket.sendPresenceUpdate('composing', item.jid);
+            await this.delay(500 + Math.random() * 1_000);
+            await socket.sendPresenceUpdate('paused', item.jid);
+          } catch {}
+          const result = await socket.sendMessage(item.jid, item.message, item.options);
+          this.sentMinute += 1;
+          this.sentHour += 1;
+          item.resolve(result);
+        } catch (error) {
+          if (item.retries++ < 3) {
+            await this.delay(1_000 * 2 ** item.retries);
+            this.queue.unshift(item);
+          } else {
+            emitLog('WhatsApp send failed after retries: ' + (error instanceof Error ? error.message : error), 'error');
+            item.reject(error);
+          }
         }
+      }
+    } finally {
+      this.isProcessing = false;
+      if (this.queue.length) void this.process();
     }
+  }
 
-    private delay(ms: number) {
-        return new Promise(resolve => setTimeout(resolve, ms));
-    }
+  private resetCounters() {
+    const now = Date.now();
+    if (now - this.minuteReset >= 60_000) { this.sentMinute = 0; this.minuteReset = now; }
+    if (now - this.hourReset >= 3_600_000) { this.sentHour = 0; this.hourReset = now; }
+  }
+
+  private delay(ms: number) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 }
 
 export const messageQueue = new MessageQueue();
