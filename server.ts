@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import cors from 'cors';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import path from 'path';
@@ -37,6 +38,7 @@ initSocket(io);
 
 const PORT = 3000;
 
+app.use(cors({ origin: '*' }));
 app.use(express.json());
 app.use('/api', apiRoutes);
 

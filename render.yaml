@@ -9,3 +9,9 @@ services:
         sync: false
       - key: VERCEL
         value: "0"
+      - key: SESSION_PATH
+        value: "/baileys_auth_info"
+    disk:
+      name: session-data
+      mountPath: /baileys_auth_info
+      sizeGB: 1
