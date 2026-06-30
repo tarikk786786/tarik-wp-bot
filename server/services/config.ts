@@ -1,5 +1,4 @@
-import fs from 'fs';
-import path from 'path';
+import { insforge } from './insforge.js';
 
 export interface BotConfig {
     botEnabled: boolean;
@@ -9,19 +8,15 @@ export interface BotConfig {
     systemInstruction: string;
     replyToPrivate: boolean;
     replyToGroups: boolean;
-    allowedNumbers: string[]; // e.g. ["1234567890"]
-    blockedNumbers: string[]; // e.g. ["0987654321"]
+    allowedNumbers: string[];
+    blockedNumbers: string[];
     replyDelayMs: number;
-    activeHoursStart: string; // "HH:MM"
-    activeHoursEnd: string; // "HH:MM"
+    activeHoursStart: string;
+    activeHoursEnd: string;
     replyMood: string;
     replyLanguage: string;
     smartAutoReply: boolean;
 }
-
-const isServerless = process.env.VERCEL === '1' || process.env.VERCEL === 'true' || !!process.env.RENDER;
-const baseConfigPath = path.join(process.cwd(), 'bot_config.json');
-const tmpConfigPath = '/tmp/bot_config.json';
 
 const defaultConfig: BotConfig = {
     botEnabled: true,
@@ -40,27 +35,54 @@ const defaultConfig: BotConfig = {
     smartAutoReply: false
 };
 
-export function getConfig(): BotConfig {
+let cachedConfig: BotConfig | null = null;
+
+export async function initConfig() {
     try {
-        const targetPath = (isServerless && fs.existsSync(tmpConfigPath)) ? tmpConfigPath : baseConfigPath;
-        if (fs.existsSync(targetPath)) {
-            const data = fs.readFileSync(targetPath, 'utf8');
-            return { ...defaultConfig, ...JSON.parse(data) };
+        const { data, error } = await insforge.database.from('settings')
+            .select('*')
+            .eq('type', 'bot_config')
+            .maybeSingle();
+
+        if (error) {
+             throw error;
+        }
+
+        if (data && data.data) {
+            cachedConfig = { ...defaultConfig, ...data.data };
+        } else {
+            cachedConfig = { ...defaultConfig };
+            await insforge.database.from('settings')
+                .upsert([{ type: 'bot_config', data: cachedConfig }], { onConflict: 'type' });
         }
     } catch (e) {
-        console.error("Failed to load config", e);
+        console.error("Failed to load config from InsForge:", e);
+        cachedConfig = { ...defaultConfig };
     }
-    return defaultConfig;
 }
 
-export function saveConfig(config: Partial<BotConfig>) {
+export function getConfig(): BotConfig {
+    if (!cachedConfig) return defaultConfig;
+    return cachedConfig;
+}
+
+export async function saveConfigAsync(config: Partial<BotConfig>): Promise<BotConfig> {
     const current = getConfig();
     const updated = { ...current, ...config };
     try {
-        const targetPath = isServerless ? tmpConfigPath : baseConfigPath;
-        fs.writeFileSync(targetPath, JSON.stringify(updated, null, 2), 'utf8');
+        await insforge.database.from('settings')
+            .upsert([{ type: 'bot_config', data: updated }], { onConflict: 'type' });
+        cachedConfig = updated;
     } catch(e) {
-        console.error("Failed to save config:", e);
+        console.error("Failed to save config to InsForge:", e);
     }
+    return updated;
+}
+
+export function saveConfig(config: Partial<BotConfig>): BotConfig {
+    // Fire and forget async save to maintain sync compatibility for existing callers
+    saveConfigAsync(config).catch(console.error);
+    const updated = { ...getConfig(), ...config };
+    cachedConfig = updated;
     return updated;
 }

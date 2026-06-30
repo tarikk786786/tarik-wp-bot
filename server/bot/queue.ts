@@ -2,6 +2,8 @@ import { AnyMessageContent, proto } from '@whiskeysockets/baileys';
 import { emitLog } from '../services/socket.js';
 import { getSock } from './index.js';
 
+export const botSentMessageIds = new Set<string>();
+
 interface QueueItem {
     jid: string;
     message: AnyMessageContent;
@@ -83,6 +85,15 @@ class MessageQueue {
 
                 const result = await sock.sendMessage(item.jid, item.message, item.options);
                 
+                if (result?.key?.id) {
+                    botSentMessageIds.add(result.key.id);
+                    // Prevent memory leak
+                    if (botSentMessageIds.size > 1000) {
+                        const toRemove = Array.from(botSentMessageIds).slice(0, 100);
+                        toRemove.forEach(id => botSentMessageIds.delete(id));
+                    }
+                }
+
                 this.messagesSentLastMinute++;
                 this.messagesSentLastHour++;
                 

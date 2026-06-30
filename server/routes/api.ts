@@ -1,12 +1,11 @@
 import express from 'express';
-import { stopWhatsAppBot, startWhatsAppBot, getCreds, setCreds } from '../bot/index.js';
+import { stopWhatsAppBot, startWhatsAppBot, logoutWhatsAppBot, getCreds, setCreds } from '../bot/index.js';
 import { startTelegramBot, stopTelegramBot } from '../bot/telegram.js';
 import fs from 'fs';
 import path from 'path';
 import { emitLog, emitStatus, getCurrentStatus, getCurrentStatusData, getCurrentQr, getCurrentTgStatus, getCurrentTgStatusData, getCurrentTgQr } from '../services/socket.js';
 import { getConfig, saveConfig } from '../services/config.js';
 import { clearAllMemory } from '../services/memory.js';
-import { deleteExpiredBackups } from '../services/storage.js';
 
 const router = express.Router();
 
@@ -136,18 +135,10 @@ router.post('/bot/restart', async (req, res) => {
 });
 
 router.post('/bot/logout', async (req, res) => {
-  await stopWhatsAppBot();
+  await logoutWhatsAppBot();
   stopTelegramBot();
-  const authFolder = isVercel ? '/tmp/baileys_auth_info' : path.join(process.cwd(), 'baileys_auth_info');
-  if (fs.existsSync(authFolder)) {
-    fs.rmSync(authFolder, { recursive: true, force: true });
-  }
   
-  deleteExpiredBackups().catch(e => {
-    emitLog(`Failed to delete GCS backups on logout: ${e.message}`, 'error');
-  });
-
-  emitLog('Logged out and cleared auth data', 'warn');
+  emitLog('Logged out and cleared auth data from MongoDB', 'warn');
   emitStatus('disconnected');
   
   setTimeout(() => {

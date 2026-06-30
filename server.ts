@@ -7,6 +7,7 @@ import { createServer as createViteServer } from 'vite';
 import { startWhatsAppBot, stopWhatsAppBot } from './server/bot/index.js';
 import { startTelegramBot, stopTelegramBot } from './server/bot/telegram.js';
 import { initSocket, emitLog } from './server/services/socket.js';
+import { initConfig } from './server/services/config.js';
 import apiRoutes from './server/routes/api.js';
 
 // Global error handlers to prevent crash
@@ -58,8 +59,15 @@ setupVite();
 
 const isServerless = process.env.VERCEL === '1' || process.env.VERCEL === 'true';
 if (!isServerless) {
-  httpServer.listen(PORT, '0.0.0.0', () => {
+  httpServer.listen(PORT, '0.0.0.0', async () => {
     console.log(`Server running on port ${PORT}`);
+    try {
+      await initConfig();
+    } catch (err: any) {
+      console.error('Failed to initialize Config:', err.message);
+    }
+    
+    // Attempt to start bots even if DB failed (they might crash, but it's better than silent failure)
     startWhatsAppBot();
     startTelegramBot();
   });

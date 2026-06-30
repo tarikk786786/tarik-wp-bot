@@ -1,11 +1,12 @@
-import { makeWASocket, DisconnectReason, useMultiFileAuthState, fetchLatestBaileysVersion, Browsers } from '@whiskeysockets/baileys';
+import { makeWASocket, DisconnectReason, fetchLatestBaileysVersion, Browsers } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import QRCode from 'qrcode';
 import { emitStatus, emitLog, emitQR, getIo } from '../services/socket.js';
 import { handleIncomingMessage } from './handler.js';
 import fs from 'fs';
 import path from 'path';
-import { initStorage, backupSession, restoreSession, sessionExistsOnGCS, deleteExpiredBackups } from '../services/storage.js';
+import { botSentMessageIds } from './queue.js';
+import { useInsForgeAuthState } from '../services/insforge-auth.js';
 
 let sock: any = null;
 const isVercel = process.env.VERCEL === '1' || process.env.VERCEL === 'true';
@@ -17,7 +18,7 @@ let lastUserActivityTime = 0;
 let retryCount = 0;
 let reconnectTimeout: NodeJS.Timeout | null = null;
 let currentSaveCreds: (() => Promise<void>) | null = null;
-let storageInitialized = false;
+let currentRemoveCreds: (() => Promise<void>) | null = null;
 
 export function getSock() {
     return sock;
@@ -28,35 +29,11 @@ export function isUserActive() {
 }
 
 export function getCreds() {
-    if (!fs.existsSync(authFolder)) return null;
-    try {
-        const files = fs.readdirSync(authFolder);
-        const state: any = {};
-        let hasCreds = false;
-        for (const file of files) {
-            if (file.endsWith('.json')) {
-                state[file] = fs.readFileSync(path.join(authFolder, file), 'utf8');
-                if (file === 'creds.json') hasCreds = true;
-            }
-        }
-        return hasCreds ? JSON.stringify(state) : null;
-    } catch (e) {
-        return null;
-    }
+    return null; // Deprecated: session stored in MongoDB
 }
 
 export function setCreds(credsData: string) {
-    if (!fs.existsSync(authFolder)) {
-        fs.mkdirSync(authFolder, { recursive: true });
-    }
-    try {
-        const state = JSON.parse(credsData);
-        for (const file in state) {
-            fs.writeFileSync(path.join(authFolder, file), state[file]);
-        }
-    } catch (e) {
-        console.error('Failed to parse creds', e);
-    }
+    // Deprecated: session stored in MongoDB
 }
 
 export async function startWhatsAppBot() {
@@ -69,20 +46,9 @@ export async function startWhatsAppBot() {
   }
 
   try {
-    if (!storageInitialized) {
-        initStorage();
-        storageInitialized = true;
-    }
-
-    // Check if we need to restore from GCS
-    if (!fs.existsSync(authFolder) || fs.readdirSync(authFolder).length === 0) {
-        if (await sessionExistsOnGCS()) {
-            await restoreSession(authFolder);
-        }
-    }
-
-    const { state, saveCreds } = await useMultiFileAuthState(authFolder);
+    const { state, saveCreds, removeCreds } = await useInsForgeAuthState('default_whatsapp_session');
     currentSaveCreds = saveCreds;
+    currentRemoveCreds = removeCreds;
 
     const { version, isLatest } = await fetchLatestBaileysVersion();
     
@@ -100,7 +66,7 @@ export async function startWhatsAppBot() {
       connectTimeoutMs: 60000,
       defaultQueryTimeoutMs: 60000,
       keepAliveIntervalMs: 25000,
-      getMessage: async () => {
+      getMessage: async (key: any) => {
           return { conversation: 'Bot is running...' };
       },
     });
@@ -108,19 +74,6 @@ export async function startWhatsAppBot() {
     sock.ev.on('creds.update', async () => {
         try {
             await saveCreds();
-            // Backup session to GCS in the background without blocking
-            backupSession(authFolder).catch(e => {
-                emitLog(`GCS Backup failed in background: ${e.message}`, 'error');
-            });
-
-            // On update, if in Vercel, emit the creds so the client can save them
-            if (isVercel) {
-                const credsString = getCreds();
-                if (credsString) {
-                    const io = getIo();
-                    if (io) io.emit('creds_update', credsString);
-                }
-            }
         } catch (err) {
             emitLog(`Failed to save credentials: ${err}`, 'error');
         }
@@ -216,7 +169,9 @@ export async function startWhatsAppBot() {
           if (!msg.key.fromMe) {
             await handleIncomingMessage(sock, msg);
           } else {
-            lastUserActivityTime = Date.now();
+            if (msg.key.id && !botSentMessageIds.has(msg.key.id)) {
+                lastUserActivityTime = Date.now();
+            }
           }
         }
       }
@@ -233,6 +188,15 @@ export async function startWhatsAppBot() {
   }
 }
 
+export async function logoutWhatsAppBot() {
+    await stopWhatsAppBot();
+    if (currentRemoveCreds) {
+        try {
+            await currentRemoveCreds();
+        } catch (e) {}
+    }
+}
+
 export async function stopWhatsAppBot() {
   if (reconnectTimeout) {
     clearTimeout(reconnectTimeout);
@@ -244,11 +208,6 @@ export async function stopWhatsAppBot() {
           await currentSaveCreds();
       } catch (e) {}
   }
-
-  // Final backup before stop
-  try {
-      await backupSession(authFolder);
-  } catch(e) {}
 
   if (sock) {
     try {

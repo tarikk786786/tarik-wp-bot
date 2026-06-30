@@ -27,7 +27,7 @@ export async function processMessageWithGemini(userId: string, text: string, raw
         return "System error: Gemini API key is missing or invalid. Please configure it in the AI Studio Secrets panel.";
     }
 
-    const history = getChatHistory(userId);
+    const history = await getChatHistory(userId);
     
     let mediaData = overrideMedia?.data || null;
     let mimeType = overrideMedia?.mimeType || '';
@@ -91,8 +91,8 @@ export async function processMessageWithGemini(userId: string, text: string, raw
 
     const replyText = response.text || 'System malfunction: empty response.';
     
-    addToChatHistory(userId, 'user', text || '[Media Message]');
-    addToChatHistory(userId, 'model', replyText);
+    await addToChatHistory(userId, 'user', text || '[Media Message]');
+    await addToChatHistory(userId, 'model', replyText);
 
     return replyText;
   } catch (error: any) {
