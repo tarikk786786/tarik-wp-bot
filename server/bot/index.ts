@@ -115,9 +115,11 @@ export async function startWhatsAppBot() {
         } else if (statusCode === DisconnectReason.connectionLost) {
             reason = 'Connection Lost';
         } else if (statusCode === DisconnectReason.connectionReplaced) {
-            shouldReconnect = false;
+            shouldReconnect = true; // Changed to true to auto-recover if the other instance dies
             shouldClearSession = false;
             reason = 'Connection Replaced (Opened elsewhere)';
+            // Bump retry count so it waits longer
+            retryCount = Math.max(retryCount, 3);
         } else if (statusCode === DisconnectReason.restartRequired) {
             reason = 'Restart Required';
         } else if (statusCode === DisconnectReason.multideviceMismatch) {

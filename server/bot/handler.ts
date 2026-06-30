@@ -73,12 +73,22 @@ export async function handleIncomingMessage(sock: WASocket, msg: WAMessage) {
         }
     }
 
+    // Unwrap ephemeral or view once messages
+    let actualMessage = msg.message;
+    if (actualMessage.ephemeralMessage) {
+        actualMessage = actualMessage.ephemeralMessage.message!;
+    } else if (actualMessage.viewOnceMessage) {
+        actualMessage = actualMessage.viewOnceMessage.message!;
+    } else if (actualMessage.viewOnceMessageV2) {
+        actualMessage = actualMessage.viewOnceMessageV2.message!;
+    }
+
     // Extract text from message
-    const textMessage = msg.message.conversation || 
-                        msg.message.extendedTextMessage?.text || 
-                        msg.message.imageMessage?.caption ||
-                        msg.message.documentMessage?.caption ||
-                        msg.message.videoMessage?.caption;
+    const textMessage = actualMessage.conversation || 
+                        actualMessage.extendedTextMessage?.text || 
+                        actualMessage.imageMessage?.caption ||
+                        actualMessage.documentMessage?.caption ||
+                        actualMessage.videoMessage?.caption;
 
     if (textMessage) {
         const text = textMessage.trim();
@@ -102,11 +112,11 @@ export async function handleIncomingMessage(sock: WASocket, msg: WAMessage) {
 
     if (!textMessage) {
        // If it's a pure media message with no caption, proceed if it's a supported type
-       const isMedia = msg.message.imageMessage || 
-                       msg.message.audioMessage || 
-                       msg.message.videoMessage || 
-                       msg.message.documentMessage ||
-                       msg.message.stickerMessage;
+       const isMedia = actualMessage.imageMessage || 
+                       actualMessage.audioMessage || 
+                       actualMessage.videoMessage || 
+                       actualMessage.documentMessage ||
+                       actualMessage.stickerMessage;
        if (!isMedia) {
            return;
        }
@@ -121,7 +131,7 @@ export async function handleIncomingMessage(sock: WASocket, msg: WAMessage) {
 
     // Process with Gemini
     const finalInstruction = getSystemPrompt(senderNumber);
-    const replyText = await processMessageWithGemini(jid, textMessage || '', msg.message, finalInstruction);
+    const replyText = await processMessageWithGemini(jid, textMessage || '', actualMessage, finalInstruction);
 
     if (replyText) {
         try {

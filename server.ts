@@ -77,17 +77,23 @@ if (!isServerless) {
 process.on('SIGTERM', async () => {
   await stopWhatsAppBot();
   stopTelegramBot();
+  io.close(); // Close all websocket connections
   httpServer.close(() => {
     process.exit(0);
   });
+  // Force exit after 5 seconds if not closed
+  setTimeout(() => process.exit(0), 5000);
 });
 
 process.on('SIGINT', async () => {
   await stopWhatsAppBot();
   stopTelegramBot();
+  io.close();
   httpServer.close(() => {
     process.exit(0);
   });
+  // Force exit after 5 seconds if not closed
+  setTimeout(() => process.exit(0), 5000);
 });
 
 export default app;
