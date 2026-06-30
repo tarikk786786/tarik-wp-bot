@@ -1,6 +1,6 @@
 import express from 'express';
 import { stopWhatsAppBot, startWhatsAppBot, logoutWhatsAppBot, getCreds, setCreds } from '../bot/index.js';
-import { startTelegramBot, stopTelegramBot } from '../bot/telegram.js';
+import { startTelegramBot, stopTelegramBot, clearTgCreds } from '../bot/telegram.js';
 import fs from 'fs';
 import path from 'path';
 import { emitLog, emitStatus, getCurrentStatus, getCurrentStatusData, getCurrentQr, getCurrentTgStatus, getCurrentTgStatusData, getCurrentTgQr } from '../services/socket.js';
@@ -36,10 +36,12 @@ router.use(rateLimiter);
 const isVercel = process.env.VERCEL === '1' || process.env.VERCEL === 'true';
 
 router.use((req, res, next) => {
-  if (isVercel) {
-    // Start bot asynchronously on any API request if not already starting
-    startWhatsAppBot().catch(console.error);
-  }
+  // Note: Vercel serverless functions are stateless and cannot maintain 
+  // long-lived WebSocket connections like WhatsApp Baileys. 
+  // Running this on Vercel will cause "Connection Replaced" loops as multiple 
+  // instances spin up and fight for the same session.
+  // It is recommended to deploy this backend to a platform like Render, Railway, 
+  // or a VPS that supports background processes.
   next();
 });
 
@@ -58,22 +60,6 @@ router.get('/health', (req, res) => {
 });
 
 router.get('/status', async (req, res) => {
-  const startStatus = getCurrentStatus();
-  if (isVercel) {
-    // If bot is starting, keep request alive to give it CPU time
-    if (!getCurrentQr() && (startStatus === 'initializing' || startStatus === 'disconnected')) {
-      for (let i = 0; i < 30; i++) { // 3 seconds max
-        if (getCurrentQr() || getCurrentStatus() === 'connected' || getCurrentStatus() === 'qr_ready') break;
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
-    } else if (startStatus === 'qr_ready' || startStatus === 'connected') {
-      // Keep the function alive as long as possible so Baileys can maintain its websocket connection to WhatsApp
-      for (let i = 0; i < 80; i++) { // 8 seconds max
-        if (getCurrentStatus() !== startStatus) break;
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
-    }
-  }
   res.json({ 
       status: getCurrentStatus(),
       statusDetails: getCurrentStatusData(),
@@ -81,30 +67,13 @@ router.get('/status', async (req, res) => {
       tgStatusDetails: getCurrentTgStatusData(),
       tgQr: getCurrentTgQr(),
       qr: getCurrentQr(),
-      needsCreds: isVercel ? !getCreds() : false,
-      creds: isVercel ? getCreds() : null
+      needsCreds: false,
+      creds: null
   });
 });
 
 router.post('/auth/sync', express.json({ limit: '10mb' }), async (req, res) => {
-  if (req.body && req.body.creds) {
-      if (!getCreds()) {
-          setCreds(req.body.creds);
-      }
-      startWhatsAppBot().catch(console.error);
-      
-      if (isVercel) {
-          // Keep request alive for a few seconds to let connection establish
-          for (let i = 0; i < 40; i++) {
-              if (getCurrentStatus() === 'connected') break;
-              await new Promise(resolve => setTimeout(resolve, 100));
-          }
-      }
-      
-      res.json({ success: true });
-  } else {
-      res.status(400).json({ success: false });
-  }
+  res.status(400).json({ success: false, error: 'Deprecated' });
 });
 
 router.get('/config', (req, res) => {
@@ -148,13 +117,9 @@ router.post('/bot/logout', async (req, res) => {
   res.json({ message: 'Logged out and restarting...' });
 });
 
-router.post('/bot/tg-logout', (req, res) => {
+router.post('/bot/tg-logout', async (req, res) => {
   stopTelegramBot();
-  const tgAuthFolder = isVercel ? '/tmp/tg_auth_info' : path.join(process.cwd(), 'tg_auth_info');
-  const tgSessionFile = path.join(tgAuthFolder, 'session.txt');
-  if (fs.existsSync(tgSessionFile)) {
-    fs.unlinkSync(tgSessionFile);
-  }
+  await clearTgCreds();
   emitLog('Telegram logged out and cleared auth data', 'warn');
   
   setTimeout(() => {

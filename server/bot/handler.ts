@@ -36,7 +36,7 @@ export async function handleIncomingMessage(sock: WASocket, msg: WAMessage) {
     
     const isGroup = jid.endsWith('@g.us');
     const sender = msg.key.participant || jid;
-    const senderNumber = sender.split('@')[0];
+    const senderNumber = sender.split('@')[0].split(':')[0];
 
     // Filter by group/private settings
     if (isGroup && !config.replyToGroups) return;

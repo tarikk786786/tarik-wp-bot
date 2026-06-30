@@ -24,7 +24,8 @@ export async function processMessageWithGemini(userId: string, text: string, raw
   try {
     const client = getAiClient();
     if (!client) {
-        return "System error: Gemini API key is missing or invalid. Please configure it in the AI Studio Secrets panel.";
+        emitLog('System error: Gemini API key is missing or invalid.', 'error');
+        return '';
     }
 
     const history = await getChatHistory(userId);

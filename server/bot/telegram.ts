@@ -5,10 +5,8 @@ import { emitLog, emitTgStatus, emitTgQR, clearTgQR, getIo } from '../services/s
 import { getConfig } from '../services/config.js';
 import { processMessageWithGemini } from '../services/gemini.js';
 import { telegramQueue } from './telegramQueue.js';
-import fs from 'fs';
-import path from 'path';
-
 import QRCode from 'qrcode';
+import { insforge } from '../services/insforge.js';
 
 let client: TelegramClient | null = null;
 const processedMessages = new Set<number>();
@@ -17,32 +15,50 @@ const MAX_PROCESSED = 1000;
 const apiId = 2040;
 const apiHash = "b18441a1ff607e10a989891a5462e627";
 
-const isVercel = process.env.VERCEL === '1' || process.env.VERCEL === 'true';
-const tgAuthFolder = isVercel ? '/tmp/tg_auth_info' : path.join(process.cwd(), 'tg_auth_info');
-const tgSessionFile = path.join(tgAuthFolder, 'session.txt');
+let tgSessionString = '';
 
-export function getTgCreds(): boolean {
-    return fs.existsSync(tgSessionFile) && fs.readFileSync(tgSessionFile, 'utf-8').trim().length > 0;
+export async function getTgCreds(): Promise<boolean> {
+    try {
+        const sessionId = `tg_session_${process.env.K_SERVICE || 'local'}`;
+        const { data, error } = await insforge.database
+            .from('whatsapp_sessions')
+            .select('data')
+            .eq('session_id', sessionId)
+            .eq('key', 'session_string')
+            .single();
+            
+        if (data && data.data) {
+            tgSessionString = data.data;
+            return true;
+        }
+    } catch (e) {}
+    return false;
 }
 
-export function clearTgCreds() {
-    if (fs.existsSync(tgSessionFile)) {
-        fs.unlinkSync(tgSessionFile);
-    }
+export async function clearTgCreds() {
+    tgSessionString = '';
+    const sessionId = `tg_session_${process.env.K_SERVICE || 'local'}`;
+    try {
+        await insforge.database
+            .from('whatsapp_sessions')
+            .delete()
+            .eq('session_id', sessionId);
+    } catch(e) {}
 }
 
-function loadSession(): string {
-    if (fs.existsSync(tgSessionFile)) {
-        return fs.readFileSync(tgSessionFile, 'utf-8').trim();
-    }
-    return '';
+async function loadSession(): Promise<string> {
+    await getTgCreds();
+    return tgSessionString;
 }
 
-function saveSession(sessionString: string) {
-    if (!fs.existsSync(tgAuthFolder)) {
-        fs.mkdirSync(tgAuthFolder, { recursive: true });
-    }
-    fs.writeFileSync(tgSessionFile, sessionString, 'utf-8');
+async function saveSession(sessionString: string) {
+    tgSessionString = sessionString;
+    const sessionId = `tg_session_${process.env.K_SERVICE || 'local'}`;
+    try {
+        await insforge.database
+            .from('whatsapp_sessions')
+            .upsert([{ session_id: sessionId, key: 'session_string', data: sessionString }], { onConflict: 'session_id,key' });
+    } catch(e) {}
 }
 
 export async function startTelegramBot() {
