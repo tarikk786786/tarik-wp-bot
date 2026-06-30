@@ -69,15 +69,13 @@ class MessageQueue {
             if (!item) continue;
 
             try {
-                // Human-like delay before sending
-                const delayMs = this.limits.baseDelayMs + Math.random() * this.limits.randomDelayMs;
-                await this.delay(delayMs);
+                // Minimal delay to prevent socket spam
+                await this.delay(200);
 
-                // Send typing indicator
+                // Send typing indicator quickly
                 try {
                     await sock.sendPresenceUpdate('composing', item.jid);
-                    // Slight delay while "typing"
-                    await this.delay(1000 + Math.random() * 1000);
+                    await this.delay(300);
                     await sock.sendPresenceUpdate('paused', item.jid);
                 } catch (e) {
                     // Ignore presence errors to avoid blocking sends

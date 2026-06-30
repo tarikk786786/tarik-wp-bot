@@ -31,8 +31,14 @@ export async function handleIncomingMessage(sock: WASocket, msg: WAMessage) {
         return;
     }
 
-    const jid = msg.key.remoteJid;
+    let jid = msg.key.remoteJid;
     if (!jid || jid === 'status@broadcast') return;
+
+    // Try to resolve LID to real number if participant is provided
+    if (jid.endsWith('@lid') && msg.key.participant && msg.key.participant.endsWith('@s.whatsapp.net')) {
+        jid = msg.key.participant;
+        emitLog(`Resolved LID to real number: ${jid}`, 'info');
+    }
     
     const isGroup = jid.endsWith('@g.us');
     const sender = msg.key.participant || jid;
