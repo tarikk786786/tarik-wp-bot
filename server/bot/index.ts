@@ -139,6 +139,9 @@ export async function startWhatsAppBot() {
         } else {
           emitLog('Session invalid or logged out by user. Generating new QR...', 'error');
           retryCount = 0; // reset
+          if (currentRemoveCreds) {
+              try { await currentRemoveCreds(); } catch (e) {}
+          }
           if (fs.existsSync(authFolder)) {
               try { fs.rmSync(authFolder, { recursive: true, force: true }); } catch (e) {}
           }
