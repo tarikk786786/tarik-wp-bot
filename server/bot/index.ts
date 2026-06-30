@@ -191,6 +191,18 @@ const sessionId = process.env.RENDER ? 'whatsapp_session_render_prod' : 'whatsap
       }
     });
 
+    sock.ev.on('messages.update', (updates: any) => {
+        for (const update of updates) {
+            if (update.update?.status) {
+                const statusMap: any = { 1: 'PENDING', 2: 'SERVER_ACK', 3: 'DELIVERY_ACK', 4: 'READ', 5: 'PLAYED' };
+                const statusStr = statusMap[update.update.status] || update.update.status;
+                if (botSentMessageIds.has(update.key.id)) {
+                    emitLog(`Message ${update.key.id} delivery status: ${statusStr}`, 'info');
+                }
+            }
+        }
+    });
+
     botStarting = false;
   } catch (err: any) {
     botStarting = false;
