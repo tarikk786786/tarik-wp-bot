@@ -63,7 +63,7 @@ const sessionId = process.env.RENDER ? 'whatsapp_session_render_prod' : 'whatsap
       auth: state,
       browser: ['Tarik Bhai AI', 'Chrome', '1.0.0'],
       markOnlineOnConnect: true,
-      syncFullHistory: false,
+      syncFullHistory: true,
       generateHighQualityLinkPreview: true,
       connectTimeoutMs: 60000,
       defaultQueryTimeoutMs: 60000,
