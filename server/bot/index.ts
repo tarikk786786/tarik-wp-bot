@@ -98,24 +98,30 @@ export async function startWhatsAppBot() {
         const statusCode = error?.output?.statusCode;
         
         let shouldReconnect = true;
+        let shouldClearSession = false;
         let reason = 'unknown';
 
         if (statusCode === DisconnectReason.loggedOut) {
             shouldReconnect = false;
+            shouldClearSession = true;
             reason = 'Logged Out';
         } else if (statusCode === DisconnectReason.badSession) {
             shouldReconnect = false;
+            shouldClearSession = true;
             reason = 'Bad Session';
         } else if (statusCode === DisconnectReason.connectionClosed) {
             reason = 'Connection Closed';
         } else if (statusCode === DisconnectReason.connectionLost) {
             reason = 'Connection Lost';
         } else if (statusCode === DisconnectReason.connectionReplaced) {
+            shouldReconnect = false;
+            shouldClearSession = false;
             reason = 'Connection Replaced (Opened elsewhere)';
         } else if (statusCode === DisconnectReason.restartRequired) {
             reason = 'Restart Required';
         } else if (statusCode === DisconnectReason.multideviceMismatch) {
             shouldReconnect = false;
+            shouldClearSession = true;
             reason = 'Multi-device Mismatch';
         }
         
@@ -136,7 +142,7 @@ export async function startWhatsAppBot() {
           const retryDelay = Math.min(Math.pow(2, retryCount) * 1000, 60000);
           emitLog(`Reconnecting in ${retryDelay/1000}s...`, 'info');
           reconnectTimeout = setTimeout(startWhatsAppBot, retryDelay);
-        } else {
+        } else if (shouldClearSession) {
           emitLog('Session invalid or logged out by user. Generating new QR...', 'error');
           retryCount = 0; // reset
           if (currentRemoveCreds) {
@@ -150,6 +156,9 @@ export async function startWhatsAppBot() {
               if (io) io.emit('creds_update', '');
           }
           reconnectTimeout = setTimeout(startWhatsAppBot, 2000);
+        } else {
+          emitLog(`Bot stopped: ${reason}. Will not reconnect automatically.`, 'warn');
+          retryCount = 0;
         }
       } else if (connection === 'open') {
         retryCount = 0; // Reset retry count on successful connection
