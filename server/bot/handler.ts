@@ -1,117 +1,120 @@
 import { WAMessage, WASocket } from '@whiskeysockets/baileys';
 import { emitLog } from '../services/socket.js';
 import { processMessageWithGemini } from '../services/gemini.js';
-import { getConfig } from '../services/config.js';
+import { getConfig, saveConfig } from '../services/config.js';
 import { isUserActive } from './index.js';
 import { messageQueue } from './queue.js';
+import { envNumber, isOptIn, isOptOut } from './safety.js';
 
 const processedMessages = new Set<string>();
-const MAX_PROCESSED = 1000;
+const processingChats = new Set<string>();
+const lastReplyAt = new Map<string, number>();
+const MAX_PROCESSED = 2_000;
+
+function messageText(msg: WAMessage) {
+  const message = msg.message;
+  return message?.conversation ||
+    message?.extendedTextMessage?.text ||
+    message?.imageMessage?.caption ||
+    message?.documentMessage?.caption ||
+    message?.videoMessage?.caption || '';
+}
+
+function addressedToBot(sock: WASocket, msg: WAMessage) {
+  const ownId = sock.user?.id?.split(':')[0]?.split('@')[0];
+  if (!ownId) return false;
+  const context = msg.message?.extendedTextMessage?.contextInfo ||
+    msg.message?.imageMessage?.contextInfo ||
+    msg.message?.videoMessage?.contextInfo ||
+    msg.message?.documentMessage?.contextInfo;
+  const mentioned = context?.mentionedJid?.some((jid) => jid.split(':')[0].split('@')[0] === ownId);
+  const repliedToBot = context?.participant?.split(':')[0].split('@')[0] === ownId;
+  return Boolean(mentioned || repliedToBot);
+}
+
+function isActiveNow(start: string, end: string) {
+  if (start === '00:00' && end === '23:59') return true;
+  const now = new Date();
+  const current = now.getHours() * 60 + now.getMinutes();
+  const [startHour, startMinute] = start.split(':').map(Number);
+  const [endHour, endMinute] = end.split(':').map(Number);
+  const from = startHour * 60 + startMinute;
+  const to = endHour * 60 + endMinute;
+  return from <= to ? current >= from && current <= to : current >= from || current <= to;
+}
 
 export async function handleIncomingMessage(sock: WASocket, msg: WAMessage) {
+  const jid = msg.key.remoteJid;
+  const id = msg.key.id;
+  if (!msg.message || !jid || !id || jid === 'status@broadcast' || jid.endsWith('@broadcast')) return;
+
+  const uniqueId = `${jid}:${id}`;
+  if (processedMessages.has(uniqueId)) return;
+  processedMessages.add(uniqueId);
+  if (processedMessages.size > MAX_PROCESSED) {
+    for (const oldId of Array.from(processedMessages).slice(0, 200)) processedMessages.delete(oldId);
+  }
+
+  const config = getConfig();
+  if (!config.botEnabled) return;
+
+  const isGroup = jid.endsWith('@g.us');
+  const sender = msg.key.participant || jid;
+  const senderNumber = sender.split(':')[0].split('@')[0];
+  const text = messageText(msg);
+
+  if (!isGroup && isOptOut(text)) {
+    if (!config.blockedNumbers.includes(senderNumber)) {
+      saveConfig({ ...config, blockedNumbers: [...config.blockedNumbers, senderNumber] });
+    }
+    await messageQueue.enqueue(jid, { text: 'You are unsubscribed. Send START if you want to use the assistant again.' }, { quoted: msg });
+    emitLog(`Honored opt-out from ${senderNumber}`, 'warn');
+    return;
+  }
+
+  if (!isGroup && isOptIn(text)) {
+    saveConfig({ ...config, blockedNumbers: config.blockedNumbers.filter((number) => number !== senderNumber) });
+    await messageQueue.enqueue(jid, { text: 'You are subscribed again. How can I help?' }, { quoted: msg });
+    emitLog(`Honored opt-in from ${senderNumber}`);
+    return;
+  }
+
+  if (isGroup && (!config.replyToGroups || (process.env.WA_GROUP_REQUIRE_MENTION !== 'false' && !addressedToBot(sock, msg)))) return;
+  if (!isGroup && !config.replyToPrivate) return;
+  if (config.allowedNumbers.length && !config.allowedNumbers.includes(senderNumber)) return;
+  if (config.blockedNumbers.includes(senderNumber)) return;
+  if (!isActiveNow(config.activeHoursStart, config.activeHoursEnd)) return;
+
+  const isMedia = Boolean(msg.message.imageMessage || msg.message.audioMessage || msg.message.videoMessage || msg.message.documentMessage || msg.message.stickerMessage);
+  if (!text && !isMedia) return;
+
+  const minimumInterval = envNumber('WA_MIN_CHAT_INTERVAL_MS', 15_000, 5_000, 300_000);
+  if (processingChats.has(jid) || Date.now() - (lastReplyAt.get(jid) || 0) < minimumInterval) {
+    emitLog(`Suppressed burst reply to ${senderNumber} for account safety`, 'warn');
+    return;
+  }
+
+  if (config.smartAutoReply && isUserActive()) return;
+  processingChats.add(jid);
   try {
-    if (!msg.message || !msg.key.id) return;
-
-    if (processedMessages.has(msg.key.id)) {
-        return; // Ignore duplicate
-    }
-    
-    processedMessages.add(msg.key.id);
-    if (processedMessages.size > MAX_PROCESSED) {
-        // Remove the oldest 100 elements to avoid memory leaks
-        const toRemove = Array.from(processedMessages).slice(0, 100);
-        toRemove.forEach(id => processedMessages.delete(id));
-    }
-
-    const config = getConfig();
-    if (!config.botEnabled) return;
-    
-    if (config.smartAutoReply && isUserActive()) {
-        emitLog(`Skipping reply to ${msg.key.remoteJid?.split('@')[0]} because user is currently active.`, 'info');
-        return;
-    }
-
-    const jid = msg.key.remoteJid;
-    if (!jid || jid === 'status@broadcast') return;
-    
-    const isGroup = jid.endsWith('@g.us');
-    const sender = msg.key.participant || jid;
-    const senderNumber = sender.split('@')[0];
-
-    // Filter by group/private settings
-    if (isGroup && !config.replyToGroups) return;
-    if (!isGroup && !config.replyToPrivate) return;
-
-    // Filter by allowed/blocked numbers
-    if (config.allowedNumbers.length > 0 && !config.allowedNumbers.includes(senderNumber)) {
-        return;
-    }
-    if (config.blockedNumbers.length > 0 && config.blockedNumbers.includes(senderNumber)) {
-        return;
-    }
-
-    // Filter by active hours
-    if (config.activeHoursStart !== "00:00" || config.activeHoursEnd !== "23:59") {
-        const now = new Date();
-        const currentTime = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
-        if (config.activeHoursStart < config.activeHoursEnd) {
-            if (currentTime < config.activeHoursStart || currentTime > config.activeHoursEnd) return;
-        } else {
-            // crosses midnight
-            if (currentTime < config.activeHoursStart && currentTime > config.activeHoursEnd) return;
-        }
-    }
-
-    // Smart Auto Reply - delay before replying to give user a chance to reply themselves
     if (config.smartAutoReply) {
-        emitLog(`Smart mode active. Waiting 10s before replying to ${senderNumber}...`, 'info');
-        await new Promise(resolve => setTimeout(resolve, 10000));
-        // Check again if user became active during the delay
-        if (isUserActive()) {
-            emitLog(`Skipping reply to ${senderNumber} because user became active.`, 'info');
-            return;
-        }
+      await new Promise((resolve) => setTimeout(resolve, 10_000));
+      if (isUserActive()) return;
     }
+    if (config.replyDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, config.replyDelayMs));
 
-    // Extract text from message
-    const textMessage = msg.message.conversation || 
-                        msg.message.extendedTextMessage?.text || 
-                        msg.message.imageMessage?.caption ||
-                        msg.message.documentMessage?.caption ||
-                        msg.message.videoMessage?.caption;
+    emitLog(`Processing inbound message from ${senderNumber}`);
+    const finalInstruction = `${config.systemInstruction}\n\nResponse preferences:\n- Mood/Persona: ${config.replyMood}\n- Language: ${config.replyLanguage === 'Auto-detect' ? 'Respond in the language the user uses.' : `Respond in ${config.replyLanguage}.`}`;
+    const reply = await processMessageWithGemini(jid, text, msg.message, finalInstruction);
+    if (!reply) return;
 
-    if (!textMessage) {
-       // If it's a pure media message with no caption, proceed if it's a supported type
-       const isMedia = msg.message.imageMessage || 
-                       msg.message.audioMessage || 
-                       msg.message.videoMessage || 
-                       msg.message.documentMessage ||
-                       msg.message.stickerMessage;
-       if (!isMedia) {
-           return;
-       }
-    }
-
-    emitLog(`Received message from ${senderNumber}: ${textMessage || '[Media]'}`, 'info');
-
-    // Apply delay if configured
-    if (config.replyDelayMs > 0) {
-        await new Promise(resolve => setTimeout(resolve, config.replyDelayMs));
-    }
-
-    // Process with Gemini
-    const finalInstruction = `${config.systemInstruction}\n\nStrict Constraints:\n- Mood/Persona: ${config.replyMood}\n- Language: ${config.replyLanguage === 'Auto-detect' ? 'Respond in the language the user speaks to you.' : 'You MUST respond in ' + config.replyLanguage + '.'}`;
-    const replyText = await processMessageWithGemini(jid, textMessage || '', msg.message, finalInstruction);
-
-    if (replyText) {
-        try {
-            await messageQueue.enqueue(jid, { text: replyText }, { quoted: msg });
-            emitLog(`Replied to ${senderNumber}`, 'info');
-        } catch (e: any) {
-            emitLog(`Final failure sending reply to ${senderNumber}: ${e.message}`, 'error');
-        }
-    }
-  } catch (error: any) {
-    emitLog(`Error handling message: ${error.message}`, 'error');
+    await messageQueue.enqueue(jid, { text: reply.slice(0, 4_000) }, { quoted: msg });
+    lastReplyAt.set(jid, Date.now());
+    if (lastReplyAt.size > 2_000) lastReplyAt.delete(lastReplyAt.keys().next().value!);
+    emitLog(`Replied to ${senderNumber}`);
+  } catch (error) {
+    emitLog(`Failed to handle message from ${senderNumber}: ${error instanceof Error ? error.message : error}`, 'error');
+  } finally {
+    processingChats.delete(jid);
   }
 }

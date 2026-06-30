@@ -1,24 +1,24 @@
 import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
 import { NewMessage } from "telegram/events/index.js";
-import { emitLog, emitTgStatus, emitTgQR, getIo } from '../services/socket.js';
+import { emitLog, emitTgStatus, emitTgQR } from '../services/socket.js';
 import { getConfig } from '../services/config.js';
 import { processMessageWithGemini } from '../services/gemini.js';
 import { telegramQueue } from './telegramQueue.js';
 import fs from 'fs';
 import path from 'path';
+import { telegramAuthDir } from '../services/runtime.js';
 
 import QRCode from 'qrcode';
 
 let client: TelegramClient | null = null;
-const processedMessages = new Set<number>();
+const processedMessages = new Set<string>();
 const MAX_PROCESSED = 1000;
 
-const apiId = 2040;
-const apiHash = "b18441a1ff607e10a989891a5462e627";
+const apiId = Number(process.env.TG_API_ID || 0);
+const apiHash = process.env.TG_API_HASH || '';
 
-const isStateless = process.env.VERCEL === '1' || process.env.RENDER === '1' || process.env.RENDER;
-const tgAuthFolder = isStateless ? '/tmp/tg_auth_info' : path.join(process.cwd(), 'tg_auth_info');
+const tgAuthFolder = telegramAuthDir;
 const tgSessionFile = path.join(tgAuthFolder, 'session.txt');
 
 export function getTgCreds(): boolean {
@@ -51,6 +51,12 @@ export async function startTelegramBot() {
     if (!config.telegramEnabled) {
         emitLog('Telegram bot is disabled.', 'info');
         emitTgStatus('disconnected');
+        return;
+    }
+
+    if (!apiId || !apiHash) {
+        emitLog('Telegram is enabled but TG_API_ID/TG_API_HASH are missing.', 'error');
+        emitTgStatus('disconnected', 'Missing Telegram API credentials');
         return;
     }
 
@@ -137,7 +143,8 @@ function setupMessageHandler() {
             const msg = event.message;
             if (!msg) return;
 
-            const messageId = msg.id;
+            if (msg.out) return;
+            const messageId = String(msg.chatId) + ':' + String(msg.id);
             if (processedMessages.has(messageId)) {
                 return; // Ignore duplicate
             }
@@ -200,6 +207,8 @@ function setupMessageHandler() {
             let overrideMedia;
             if (isMedia && client) {
                 try {
+                    const declaredSize = Number(msg.document?.size || msg.file?.size || 0);
+                    if (declaredSize > 10 * 1024 * 1024) throw new Error('Media exceeds the 10 MB limit');
                     const buffer = await client.downloadMedia(msg);
                     if (buffer) {
                         let mimeType = 'application/octet-stream';

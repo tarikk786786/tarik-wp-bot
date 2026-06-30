@@ -1,167 +1,84 @@
 import express from 'express';
-import { stopWhatsAppBot, startWhatsAppBot, getCreds, setCreds } from '../bot/index.js';
-import { startTelegramBot, stopTelegramBot } from '../bot/telegram.js';
-import fs from 'fs';
-import path from 'path';
-import { emitLog, emitStatus, getCurrentStatus, getCurrentQr, getCurrentTgStatus, getCurrentTgQr } from '../services/socket.js';
+import { clearWhatsAppAuth, startWhatsAppBot, stopWhatsAppBot } from '../bot/index.js';
+import { clearTgCreds, startTelegramBot, stopTelegramBot } from '../bot/telegram.js';
+import { emitLog, getCurrentQr, getCurrentStatus, getCurrentTgQr, getCurrentTgStatus } from '../services/socket.js';
 import { getConfig, saveConfig } from '../services/config.js';
 import { clearAllMemory } from '../services/memory.js';
 
 const router = express.Router();
-
-const requestCounts = new Map<string, { count: number, resetTime: number }>();
-
-const rateLimiter = (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    const ip = req.ip || 'unknown';
-    const now = Date.now();
-    const record = requestCounts.get(ip) || { count: 0, resetTime: now + 60000 };
-    
-    if (now > record.resetTime) {
-        record.count = 1;
-        record.resetTime = now + 60000;
-    } else {
-        record.count++;
-    }
-    
-    requestCounts.set(ip, record);
-    
-    if (record.count > 100) { // 100 requests per minute
-        return res.status(429).json({ error: 'Too many requests' });
-    }
-    next();
-};
-
-router.use(rateLimiter);
-
-const isServerless = process.env.VERCEL === '1' || process.env.VERCEL === 'true';
-const isStateless = isServerless || process.env.RENDER === '1' || process.env.RENDER === 'true' || process.env.RENDER;
+const requestCounts = new Map<string, { count: number; resetTime: number }>();
 
 router.use((req, res, next) => {
-  if (isServerless) {
-    // Start bot asynchronously on any API request if not already starting
-    startWhatsAppBot().catch(console.error);
+  const key = req.ip || 'unknown';
+  const now = Date.now();
+  const record = requestCounts.get(key);
+  if (!record || now >= record.resetTime) requestCounts.set(key, { count: 1, resetTime: now + 60_000 });
+  else {
+    record.count += 1;
+    if (record.count > 120) return res.status(429).json({ error: 'Too many requests' });
   }
+  if (requestCounts.size > 1_000) for (const [ip, value] of requestCounts) if (now >= value.resetTime) requestCounts.delete(ip);
   next();
 });
 
-router.get('/health', (req, res) => {
-  res.json({ status: 'ok' });
+router.get('/status', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ status: getCurrentStatus(), tgStatus: getCurrentTgStatus(), qr: getCurrentQr(), tgQr: getCurrentTgQr() });
 });
 
-router.get('/status', async (req, res) => {
-  const startStatus = getCurrentStatus();
-  if (isServerless) {
-    // If bot is starting, keep request alive to give it CPU time
-    if (!getCurrentQr() && (startStatus === 'initializing' || startStatus === 'disconnected')) {
-      for (let i = 0; i < 30; i++) { // 3 seconds max
-        if (getCurrentQr() || getCurrentStatus() === 'connected' || getCurrentStatus() === 'qr_ready') break;
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
-    } else if (startStatus === 'qr_ready' || startStatus === 'connected') {
-      // Keep the function alive as long as possible so Baileys can maintain its websocket connection to WhatsApp
-      for (let i = 0; i < 80; i++) { // 8 seconds max
-        if (getCurrentStatus() !== startStatus) break;
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
-    }
-  }
-  res.json({ 
-      status: getCurrentStatus(), 
-      tgStatus: getCurrentTgStatus(),
-      tgQr: getCurrentTgQr(),
-      qr: getCurrentQr(),
-      needsCreds: isStateless ? !getCreds() : false,
-      creds: isStateless ? getCreds() : null
-  });
+router.get('/config', (_req, res) => {
+  const config = getConfig();
+  res.json({ ...config, telegramPassword: config.telegramPassword ? '********' : '' });
 });
 
-router.post('/auth/sync', express.json({ limit: '10mb' }), async (req, res) => {
-  if (req.body && req.body.creds) {
-      if (!getCreds()) {
-          setCreds(req.body.creds);
-      }
-      startWhatsAppBot().catch(console.error);
-      
-      if (isServerless) {
-          // Keep request alive for a few seconds to let connection establish
-          for (let i = 0; i < 40; i++) {
-              if (getCurrentStatus() === 'connected') break;
-              await new Promise(resolve => setTimeout(resolve, 100));
-          }
-      }
-      
-      res.json({ success: true });
-  } else {
-      res.status(400).json({ success: false });
-  }
+router.post('/config', async (req, res, next) => {
+  try {
+    const current = getConfig();
+    const body = req.body && typeof req.body === 'object' ? { ...req.body } : {};
+    if (body.telegramPassword === '********' || body.telegramPassword === '') body.telegramPassword = current.telegramPassword;
+    const updated = saveConfig(body);
+    emitLog('Bot configuration updated');
+    await stopTelegramBot();
+    void startTelegramBot();
+    res.json({ ...updated, telegramPassword: updated.telegramPassword ? '********' : '' });
+  } catch (error) { next(error); }
 });
 
-router.get('/config', (req, res) => {
-  res.json(getConfig());
+router.post('/bot/restart', async (_req, res) => {
+  await Promise.allSettled([stopWhatsAppBot(), stopTelegramBot()]);
+  void startWhatsAppBot();
+  void startTelegramBot();
+  res.status(202).json({ message: 'Bot restart scheduled' });
 });
 
-router.post('/config', (req, res) => {
-  const updated = saveConfig(req.body);
-  emitLog('Bot configuration updated.', 'info');
-  
-  // Restart Telegram bot to apply new token/settings if needed
-  stopTelegramBot();
-  setTimeout(() => {
-    startTelegramBot();
-  }, 1000);
-  
-  res.json(updated);
+router.post('/bot/logout', async (_req, res, next) => {
+  try {
+    await clearWhatsAppAuth();
+    emitLog('WhatsApp authentication data cleared', 'warn');
+    void startWhatsAppBot();
+    res.status(202).json({ message: 'WhatsApp logged out; a new QR will be generated' });
+  } catch (error) { next(error); }
 });
 
-router.post('/bot/restart', (req, res) => {
-  stopWhatsAppBot();
-  stopTelegramBot();
-  setTimeout(() => {
-    startWhatsAppBot();
-    startTelegramBot();
-  }, 1000);
-  res.json({ message: 'Restarting bot...' });
+router.post('/bot/tg-logout', async (_req, res, next) => {
+  try {
+    await stopTelegramBot();
+    clearTgCreds();
+    emitLog('Telegram authentication data cleared', 'warn');
+    void startTelegramBot();
+    res.status(202).json({ message: 'Telegram logged out' });
+  } catch (error) { next(error); }
 });
 
-router.post('/bot/logout', (req, res) => {
-  stopWhatsAppBot();
-  stopTelegramBot();
-  const isStateless = process.env.VERCEL === '1' || process.env.VERCEL === 'true' || process.env.RENDER === '1' || process.env.RENDER === 'true' || process.env.RENDER;
-  const authFolder = isStateless ? '/tmp/baileys_auth_info' : path.join(process.cwd(), 'baileys_auth_info');
-  if (fs.existsSync(authFolder)) {
-    fs.rmSync(authFolder, { recursive: true, force: true });
-  }
-  emitLog('Logged out and cleared auth data', 'warn');
-  emitStatus('disconnected');
-  
-  setTimeout(() => {
-    startWhatsAppBot();
-  }, 1000);
-  
-  res.json({ message: 'Logged out and restarting...' });
-});
-
-router.post('/bot/tg-logout', (req, res) => {
-  stopTelegramBot();
-  const isStateless = process.env.VERCEL === '1' || process.env.VERCEL === 'true' || process.env.RENDER === '1' || process.env.RENDER === 'true' || process.env.RENDER;
-  const tgAuthFolder = isStateless ? '/tmp/tg_auth_info' : path.join(process.cwd(), 'tg_auth_info');
-  const tgSessionFile = path.join(tgAuthFolder, 'session.txt');
-  if (fs.existsSync(tgSessionFile)) {
-    fs.unlinkSync(tgSessionFile);
-  }
-  emitLog('Telegram logged out and cleared auth data', 'warn');
-  
-  setTimeout(() => {
-    startTelegramBot();
-  }, 1000);
-  
-  res.json({ message: 'Logged out Telegram...' });
-});
-
-router.post('/bot/memory/clear', (req, res) => {
+router.post('/bot/memory/clear', (_req, res) => {
   clearAllMemory();
-  emitLog('All bot contextual memory cleared.', 'warn');
+  emitLog('All contextual memory cleared', 'warn');
   res.json({ message: 'Memory cleared' });
+});
+
+router.use((error: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  emitLog(`API error: ${error.message}`, 'error');
+  res.status(400).json({ error: 'Invalid request' });
 });
 
 export default router;
