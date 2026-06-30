@@ -61,7 +61,7 @@ class MessageQueue {
 
             if (this.messagesSentLastMinute >= this.limits.perMinute || this.messagesSentLastHour >= this.limits.perHour) {
                 emitLog(`Rate limit reached. Pausing message queue.`, 'warn');
-                await this.delay(5000); // Wait 5 seconds before checking again
+                await this.delay(5000);
                 continue;
             }
 
@@ -78,14 +78,30 @@ class MessageQueue {
                     await this.delay(300);
                     await sock.sendPresenceUpdate('paused', item.jid);
                 } catch (e) {
-                    // Ignore presence errors to avoid blocking sends
+                    emitLog(`Presence update failed for ${item.jid}, ignoring.`, 'warn');
                 }
 
-                const result = await sock.sendMessage(item.jid, item.message, item.options);
+                emitLog(`[OUTBOUND] Preparing to send message to ${item.jid}...`, 'info');
+                
+                // --- STRICT PAYLOAD ENFORCEMENT ---
+                // We MUST strip out any options if the JID is an LID to prevent encryption crashes.
+                // In handler.ts we already pass `undefined` for options, but we double check here.
+                let finalOptions = item.options;
+                if (item.jid.endsWith('@lid')) {
+                    finalOptions = undefined;
+                    emitLog(`[OUTBOUND] LID detected, stripping all message options (no quoting allowed).`, 'info');
+                }
+                
+                emitLog(`[OUTBOUND] Payload: ${JSON.stringify(item.message)}`, 'info');
+
+                const sendStartTime = Date.now();
+                const result = await sock.sendMessage(item.jid, item.message, finalOptions);
+                const sendDuration = Date.now() - sendStartTime;
+                
+                emitLog(`[OUTBOUND SUCCESS] Message sent to ${item.jid} in ${sendDuration}ms. Result ID: ${result?.key?.id}`, 'info');
                 
                 if (result?.key?.id) {
                     botSentMessageIds.add(result.key.id);
-                    // Prevent memory leak
                     if (botSentMessageIds.size > 1000) {
                         const toRemove = Array.from(botSentMessageIds).slice(0, 100);
                         toRemove.forEach(id => botSentMessageIds.delete(id));
@@ -97,16 +113,16 @@ class MessageQueue {
                 
                 item.resolve(result);
             } catch (error: any) {
-                emitLog(`Failed to send message to ${item.jid}: ${error.message}`, 'error');
+                emitLog(`[OUTBOUND ERROR] Failed to send message to ${item.jid}: ${error.message}\nStack: ${error.stack}`, 'error');
                 
                 if (item.retries < 3) {
                     item.retries++;
                     const backoffDelay = Math.pow(2, item.retries) * 1000;
-                    emitLog(`Retrying message to ${item.jid} in ${backoffDelay}ms (Attempt ${item.retries})`, 'warn');
+                    emitLog(`[RETRY] Retrying message to ${item.jid} in ${backoffDelay}ms (Attempt ${item.retries}/3)`, 'warn');
                     await this.delay(backoffDelay);
                     this.queue.unshift(item); // Put it back at the front
                 } else {
-                    emitLog(`Dropped message to ${item.jid} after 3 failed attempts`, 'error');
+                    emitLog(`[OUTBOUND FATAL] Dropped message to ${item.jid} after 3 failed attempts.`, 'error');
                     item.reject(error);
                 }
             }

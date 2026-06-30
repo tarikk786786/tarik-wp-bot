@@ -18,31 +18,34 @@ export async function handleIncomingMessage(sock: WASocket, msg: WAMessage) {
     
     processedMessages.add(msg.key.id);
     if (processedMessages.size > MAX_PROCESSED) {
-        // Remove the oldest 100 elements to avoid memory leaks
         const toRemove = Array.from(processedMessages).slice(0, 100);
         toRemove.forEach(id => processedMessages.delete(id));
     }
 
     const config = getConfig();
     if (!config.botEnabled) return;
-    
-    if (config.smartAutoReply && isUserActive()) {
-        emitLog(`Skipping reply to ${msg.key.remoteJid?.split('@')[0]} because user is currently active.`, 'info');
-        return;
-    }
 
-    let jid = msg.key.remoteJid;
+    // --- 1. DEBUG LOGGING ---
+    emitLog(`=== INCOMING MESSAGE ===\n${JSON.stringify(msg.key, null, 2)}`, 'info');
+
+    // --- 2. EXTRACT JID STRICTLY ---
+    const jid = msg.key.remoteJid;
     if (!jid || jid === 'status@broadcast') return;
 
-    // Try to resolve LID to real number if participant is provided
-    if (jid.endsWith('@lid') && msg.key.participant && msg.key.participant.endsWith('@s.whatsapp.net')) {
-        jid = msg.key.participant;
-        emitLog(`Resolved LID to real number: ${jid}`, 'info');
-    }
-    
     const isGroup = jid.endsWith('@g.us');
-    const sender = msg.key.participant || jid;
-    const senderNumber = sender.split('@')[0].split(':')[0];
+    
+    // We NEVER mutate or replace the remoteJid. We must reply to exactly what we receive.
+    // We extract pushName or participant just for logging/filtering
+    const participant = msg.key.participant || jid;
+    const pushName = msg.pushName || 'Unknown';
+    const senderNumber = participant.split('@')[0].split(':')[0];
+
+    emitLog(`Extracted -> JID: ${jid} | Participant: ${participant} | FromMe: ${msg.key.fromMe} | PushName: ${pushName}`, 'info');
+
+    if (config.smartAutoReply && isUserActive()) {
+        emitLog(`Skipping reply to ${senderNumber} because user is currently active.`, 'info');
+        return;
+    }
 
     // Filter by group/private settings
     if (isGroup && !config.replyToGroups) return;
@@ -63,40 +66,45 @@ export async function handleIncomingMessage(sock: WASocket, msg: WAMessage) {
         if (config.activeHoursStart < config.activeHoursEnd) {
             if (currentTime < config.activeHoursStart || currentTime > config.activeHoursEnd) return;
         } else {
-            // crosses midnight
             if (currentTime < config.activeHoursStart && currentTime > config.activeHoursEnd) return;
         }
     }
 
-    // Smart Auto Reply - delay before replying to give user a chance to reply themselves
     if (config.smartAutoReply) {
         emitLog(`Smart mode active. Waiting 10s before replying to ${senderNumber}...`, 'info');
         await new Promise(resolve => setTimeout(resolve, 10000));
-        // Check again if user became active during the delay
         if (isUserActive()) {
             emitLog(`Skipping reply to ${senderNumber} because user became active.`, 'info');
             return;
         }
     }
 
-    // Unwrap ephemeral or view once messages
+    // --- 3. UNWRAP MESSAGE COMPLETELY ---
     let actualMessage = msg.message;
-    if (actualMessage.ephemeralMessage) {
-        actualMessage = actualMessage.ephemeralMessage.message!;
-    } else if (actualMessage.viewOnceMessage) {
-        actualMessage = actualMessage.viewOnceMessage.message!;
-    } else if (actualMessage.viewOnceMessageV2) {
-        actualMessage = actualMessage.viewOnceMessageV2.message!;
+    let messageType = Object.keys(actualMessage)[0];
+
+    // Deep unwrap for ephemeral, viewOnce, edited, etc.
+    while (actualMessage.ephemeralMessage || actualMessage.viewOnceMessage || actualMessage.viewOnceMessageV2 || actualMessage.documentWithCaptionMessage || actualMessage.editedMessage) {
+        if (actualMessage.ephemeralMessage) actualMessage = actualMessage.ephemeralMessage.message!;
+        else if (actualMessage.viewOnceMessage) actualMessage = actualMessage.viewOnceMessage.message!;
+        else if (actualMessage.viewOnceMessageV2) actualMessage = actualMessage.viewOnceMessageV2.message!;
+        else if (actualMessage.documentWithCaptionMessage) actualMessage = actualMessage.documentWithCaptionMessage.message!;
+        else if (actualMessage.editedMessage) actualMessage = actualMessage.editedMessage.message?.protocolMessage?.editedMessage!;
+        
+        messageType = Object.keys(actualMessage)[0];
     }
 
-    // Extract text from message
+    // Extract text from the unwrapped message
     const textMessage = actualMessage.conversation || 
                         actualMessage.extendedTextMessage?.text || 
                         actualMessage.imageMessage?.caption ||
                         actualMessage.documentMessage?.caption ||
                         actualMessage.videoMessage?.caption;
 
-    const messageOptions = jid.endsWith('@lid') ? undefined : { quoted: msg };
+    emitLog(`Unwrapped Message Type: ${messageType} | Extracted Text: ${textMessage ? textMessage.substring(0, 50) + '...' : '[No Text]'}`, 'info');
+
+    // Never use quoted messages anymore to prevent E2E corruption
+    const messageOptions = undefined;
 
     if (textMessage) {
         const text = textMessage.trim();
@@ -104,9 +112,8 @@ export async function handleIncomingMessage(sock: WASocket, msg: WAMessage) {
             await messageQueue.enqueue(jid, { text: 'Pong! 🏓 Bot is active.' }, messageOptions);
             return;
         } else if (text === '!clear') {
-            import('../services/memory.js').then(async ({ getChatHistory, addToChatHistory, clearAllMemory }) => {
+            import('../services/memory.js').then(async ({ clearAllMemory }) => {
                 try {
-                    // Just clear for this user
                     const { insforge } = await import('../services/insforge.js');
                     await insforge.database.from('ai_memory').delete().eq('user_id', jid);
                     await messageQueue.enqueue(jid, { text: 'Memory cleared for this chat. 🧹' }, messageOptions);
@@ -119,7 +126,6 @@ export async function handleIncomingMessage(sock: WASocket, msg: WAMessage) {
     }
 
     if (!textMessage) {
-       // If it's a pure media message with no caption, proceed if it's a supported type
        const isMedia = actualMessage.imageMessage || 
                        actualMessage.audioMessage || 
                        actualMessage.videoMessage || 
@@ -130,24 +136,20 @@ export async function handleIncomingMessage(sock: WASocket, msg: WAMessage) {
        }
     }
 
-    emitLog(`Received message from ${senderNumber}: ${textMessage || '[Media]'}`, 'info');
+    emitLog(`Processing AI Reply for ${senderNumber}...`, 'info');
+    const aiStartTime = Date.now();
 
-    // Apply delay if configured
-    if (config.replyDelayMs > 0) {
-        await new Promise(resolve => setTimeout(resolve, config.replyDelayMs));
-    }
-
-    // Process with Gemini
     const finalInstruction = getSystemPrompt(senderNumber);
     const replyText = await processMessageWithGemini(jid, textMessage || '', actualMessage, finalInstruction);
 
-    // Meta/Baileys drops LIDs when quoted:msg is included because of decryption mismatches. 
-    // We send a plain, unquoted message for LIDs as a workaround.
+    const aiDuration = Date.now() - aiStartTime;
+    emitLog(`AI Generation completed in ${aiDuration}ms`, 'info');
 
     if (replyText) {
         try {
-            await messageQueue.enqueue(jid, { text: replyText }, messageOptions);
-            emitLog(`Replied to ${senderNumber}`, 'info');
+            // Send entirely plain text with NO options to guarantee delivery even to corrupted/LID sessions
+            await messageQueue.enqueue(jid, { text: replyText }, undefined);
+            emitLog(`Enqueued reply for ${jid}`, 'info');
         } catch (e: any) {
             emitLog(`Final failure sending reply to ${senderNumber}: ${e.message}`, 'error');
         }
