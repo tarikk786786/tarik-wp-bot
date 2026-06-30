@@ -135,8 +135,8 @@ export async function handleIncomingMessage(sock: WASocket, msg: WAMessage) {
 
     if (replyText) {
         try {
-            const sendOptions = jid.endsWith('@lid') ? {} : { quoted: msg };
-            await messageQueue.enqueue(jid, { text: replyText }, sendOptions);
+            await messageQueue.enqueue(jid, { text: replyText }, { quoted: msg });
+            emitLog(`Replied to ${senderNumber}`, 'info');
         } catch (e: any) {
             emitLog(`Final failure sending reply to ${senderNumber}: ${e.message}`, 'error');
         }
