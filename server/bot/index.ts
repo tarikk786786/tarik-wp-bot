@@ -46,7 +46,7 @@ export async function startWhatsAppBot() {
   }
 
   try {
-    const sessionId = `whatsapp_session_${process.env.K_SERVICE || 'local'}`;
+    const sessionId = 'default_whatsapp_session';
     const { state, saveCreds, removeCreds } = await useInsForgeAuthState(sessionId);
     currentSaveCreds = saveCreds;
     currentRemoveCreds = removeCreds;

@@ -19,7 +19,7 @@ let tgSessionString = '';
 
 export async function getTgCreds(): Promise<boolean> {
     try {
-        const sessionId = `tg_session_${process.env.K_SERVICE || 'local'}`;
+        const sessionId = 'default_tg_session';
         const { data, error } = await insforge.database
             .from('whatsapp_sessions')
             .select('data')
@@ -37,7 +37,7 @@ export async function getTgCreds(): Promise<boolean> {
 
 export async function clearTgCreds() {
     tgSessionString = '';
-    const sessionId = `tg_session_${process.env.K_SERVICE || 'local'}`;
+    const sessionId = 'default_tg_session';
     try {
         await insforge.database
             .from('whatsapp_sessions')
@@ -53,7 +53,7 @@ async function loadSession(): Promise<string> {
 
 async function saveSession(sessionString: string) {
     tgSessionString = sessionString;
-    const sessionId = `tg_session_${process.env.K_SERVICE || 'local'}`;
+    const sessionId = 'default_tg_session';
     try {
         await insforge.database
             .from('whatsapp_sessions')
@@ -202,6 +202,7 @@ function setupMessageHandler() {
 
             const textMessage = msg.text || msg.message;
             const isMedia = !!msg.media;
+            const chatId = msg.chatId.toString();
             
             if (textMessage) {
                 const text = textMessage.trim();
@@ -253,7 +254,6 @@ function setupMessageHandler() {
             }
             
             const dummyWaMessage = {};
-            const chatId = msg.chatId.toString();
             
             const replyText = await processMessageWithGemini(`tg-${chatId}`, textMessage || '', dummyWaMessage, finalInstruction, overrideMedia);
 

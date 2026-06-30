@@ -72,6 +72,12 @@ router.get('/status', async (req, res) => {
   });
 });
 
+router.get('/logs', (req, res) => {
+  import('../services/socket.js').then(({ logs }) => {
+    res.json(logs);
+  });
+});
+
 router.post('/auth/sync', express.json({ limit: '10mb' }), async (req, res) => {
   res.status(400).json({ success: false, error: 'Deprecated' });
 });

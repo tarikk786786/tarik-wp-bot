@@ -7,7 +7,7 @@ let currentTgStatus = 'disconnected';
 let currentTgStatusData: any = null;
 let currentQr = '';
 let currentTgQr: { image: string, url: string } | null = null;
-const logs: any[] = [];
+export const logs: any[] = [];
 
 export function initSocket(serverIo: Server) {
   io = serverIo;
