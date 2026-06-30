@@ -157,7 +157,7 @@ export default function App() {
 
   useEffect(() => {
     // Initial fetch
-    fetch(`${API_BASE}/api/status')
+    fetch(`${API_BASE}/api/status`)
         .then(async res => {
             const contentType = res.headers.get('content-type');
             if (!res.ok || !contentType || !contentType.includes('application/json')) {
@@ -179,7 +179,7 @@ export default function App() {
             if (data.needsCreds) {
                 const creds = localStorage.getItem('wa_creds');
                 if (creds) {
-                    fetch(`${API_BASE}/api/auth/sync', {
+                    fetch(`${API_BASE}/api/auth/sync`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ creds })
@@ -248,7 +248,7 @@ export default function App() {
     const pollStatus = async () => {
         if (!isPolling) return;
         try {
-            const res = await fetch(`${API_BASE}/api/status');
+            const res = await fetch(`${API_BASE}/api/status`);
             const contentType = res.headers.get('content-type');
             if (!res.ok || !contentType || !contentType.includes('application/json')) {
                 const text = await res.text();
@@ -269,7 +269,7 @@ export default function App() {
                 const creds = localStorage.getItem('wa_creds');
                 if (creds) {
                     isSyncing = true;
-                    fetch(`${API_BASE}/api/auth/sync', {
+                    fetch(`${API_BASE}/api/auth/sync`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ creds })
@@ -322,7 +322,7 @@ export default function App() {
   
   useEffect(() => {
       if (activeTab === 'settings' && !config) {
-          fetch(`${API_BASE}/api/config')
+          fetch(`${API_BASE}/api/config`)
             .then(res => res.json())
             .then(data => setConfig(data))
             .catch(err => console.error("Failed to load config", err));
@@ -330,13 +330,13 @@ export default function App() {
   }, [activeTab]);
 
   const handleRestart = async () => {
-    await fetch(`${API_BASE}/api/bot/restart', { method: 'POST' });
+    await fetch(`${API_BASE}/api/bot/restart`, { method: 'POST' });
   };
 
   const handleLogout = async () => {
       if (confirm('Are you sure you want to unlink WhatsApp and generate a new QR?')) {
           localStorage.removeItem('wa_creds');
-          await fetch(`${API_BASE}/api/bot/logout', { method: 'POST' });
+          await fetch(`${API_BASE}/api/bot/logout`, { method: 'POST' });
       }
   };
   
@@ -345,7 +345,7 @@ export default function App() {
       if (!config) return;
       setIsSaving(true);
       try {
-          const res = await fetch(`${API_BASE}/api/config', {
+          const res = await fetch(`${API_BASE}/api/config`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -484,7 +484,7 @@ export default function App() {
                       <button 
                         onClick={async () => {
                           if (confirm('Are you sure you want to unlink Telegram and generate a new QR?')) {
-                              await fetch(`${API_BASE}/api/bot/tg-logout', { method: 'POST' });
+                              await fetch(`${API_BASE}/api/bot/tg-logout`, { method: 'POST' });
                           }
                         }}
                         className="mt-6 px-5 py-2 bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/20 rounded-lg text-xs font-semibold transition-colors"
@@ -503,7 +503,7 @@ export default function App() {
                       <button 
                         onClick={async () => {
                           setTgStatus('initializing');
-                          await fetch(`${API_BASE}/api/bot/restart', { method: 'POST' });
+                          await fetch(`${API_BASE}/api/bot/restart`, { method: 'POST' });
                         }}
                         className="px-5 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-xs font-semibold transition-colors shadow-lg shadow-blue-500/20"
                       >
@@ -941,7 +941,7 @@ export default function App() {
                                 type="button"
                                 onClick={async () => {
                                     if(confirm('Are you sure you want to clear all bot memory?')) {
-                                        await fetch(`${API_BASE}/api/bot/memory/clear', { method: 'POST' });
+                                        await fetch(`${API_BASE}/api/bot/memory/clear`, { method: 'POST' });
                                     }
                                 }}
                                 className="px-4 py-2 bg-rose-600/20 hover:bg-rose-600/30 text-rose-400 font-semibold rounded-lg border border-rose-500/20 transition-colors"
