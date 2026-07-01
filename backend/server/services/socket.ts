@@ -86,6 +86,7 @@ export function emitStatus(status: string, data?: any) {
   currentStatusData = data;
   if (io) {
     io.emit('status', { status, data });
+    io.emit('bot_status', { status, reason: data }); // For frontend compat
   }
 }
 
@@ -113,6 +114,7 @@ export function emitQR(qr: string) {
   currentQr = qr;
   if (io) {
     io.emit('qr', qr);
+    io.emit('qr_code', qr); // For frontend compat
   }
 }
 
