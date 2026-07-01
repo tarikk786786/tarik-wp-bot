@@ -1,4 +1,5 @@
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
+import { createClient } from '@supabase/supabase-js';
 import { ChatOpenAI } from '@langchain/openai';
 import { ChatAnthropic } from '@langchain/anthropic';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
@@ -61,6 +62,28 @@ export class AIRouter {
     }
   }
 
+  private async ensureProviders() {
+    if (this.providers.size > 0) return;
+    
+    // Try to load from Supabase if local env is missing
+    if (process.env.SUPABASE_URL && process.env.SUPABASE_SECRET_KEY) {
+      try {
+        const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY);
+        const { data } = await supabase.storage.from('secrets').download('keys.json');
+        if (data) {
+          const text = await data.text();
+          const keys = JSON.parse(text);
+          if (keys.OPENAI_API_KEY) {
+            process.env.OPENAI_API_KEY = keys.OPENAI_API_KEY;
+            this.initProviders();
+          }
+        }
+      } catch(e) {
+        logger.error(e, 'Failed to load remote keys');
+      }
+    }
+  }
+
   public getModel(preferredProvider?: AIProvider): BaseChatModel {
     if (preferredProvider && this.providers.has(preferredProvider)) {
       return this.providers.get(preferredProvider)!;
@@ -80,6 +103,7 @@ export class AIRouter {
     messages: { role: string, content: string }[], 
     provider?: AIProvider
   ) {
+    await this.ensureProviders();
     const model = this.getModel(provider);
     try {
       const formattedMessages = [

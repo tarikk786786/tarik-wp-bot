@@ -16,18 +16,24 @@ export const useInsForgeAuthState = async (sessionId: string): Promise<{ state: 
             };
         });
         // Upsert all in one request
-        await insforge.database.from('whatsapp_sessions')
+        const { error } = await insforge.database.from('whatsapp_sessions')
             .upsert(rows, { onConflict: 'session_id,key' });
+        if (error) {
+            console.error(`Supabase Upsert Error for session ${sessionId}:`, error);
+        }
     };
 
     const removeDataBatch = async (keys: string[]) => {
         if (keys.length === 0) return;
         keys.forEach(k => cache.delete(k));
-        await insforge.database.from('whatsapp_sessions')
+        const { error } = await insforge.database.from('whatsapp_sessions')
             .delete()
             .eq('session_id', sessionId)
             // @ts-ignore
             .in('key', keys);
+        if (error) {
+            console.error(`Supabase Delete Error for session ${sessionId}:`, error);
+        }
     };
 
     const writeData = async (data: any, key: string) => {
@@ -43,6 +49,10 @@ export const useInsForgeAuthState = async (sessionId: string): Promise<{ state: 
             .eq('session_id', sessionId)
             .eq('key', key)
             .maybeSingle();
+            
+        if (error) {
+            console.error(`Supabase Select Error for session ${sessionId}, key ${key}:`, error);
+        }
             
         if (data && data.data) {
             const parsed = JSON.parse(data.data, BufferJSON.reviver);
