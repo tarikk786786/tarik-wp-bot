@@ -28,8 +28,12 @@ export function initSocket(serverIo: Server) {
     
     // Send current state
     socket.emit('status', { status: currentStatus });
+    socket.emit('bot_status', { status: currentStatus });
     socket.emit('tg_status', { status: currentTgStatus });
-    if (currentQr) socket.emit('qr', currentQr);
+    if (currentQr) {
+      socket.emit('qr', currentQr);
+      socket.emit('qr_code', currentQr);
+    }
     if (currentTgQr) socket.emit('tg_qr', currentTgQr);
     
     // Send recent logs mapping to frontend format
