@@ -97,7 +97,10 @@ class AIOrchestrator {
 
       // 6. Generate Response using Router
       // Defaulting to gemini, but can dynamically route based on VIP status
-      const provider: AIProvider = contact.isVIP ? 'openai' : 'gemini';
+      // We prioritize DeepSeek for VIP reasoning, falling back to OpenAI
+      const provider: AIProvider = contact.isVIP 
+        ? (process.env.DEEPSEEK_API_KEY ? 'deepseek' : 'openai')
+        : 'gemini';
       
       const startTime = Date.now();
       const response = await aiRouter.generateResponse(

@@ -4,7 +4,7 @@ import { ChatAnthropic } from '@langchain/anthropic';
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { logger } from '../../utils/logger.js';
 
-export type AIProvider = 'gemini' | 'openai' | 'anthropic' | 'openrouter';
+export type AIProvider = 'gemini' | 'openai' | 'anthropic' | 'openrouter' | 'deepseek';
 
 export class AIRouter {
   private providers: Map<AIProvider, BaseChatModel> = new Map();
@@ -44,6 +44,17 @@ export class AIRouter {
         apiKey: process.env.OPENROUTER_API_KEY,
         configuration: {
           baseURL: 'https://openrouter.ai/api/v1',
+        },
+        temperature: 0.7,
+      }));
+    }
+
+    if (process.env.DEEPSEEK_API_KEY) {
+      this.providers.set('deepseek', new ChatOpenAI({
+        modelName: 'deepseek-chat', 
+        apiKey: process.env.DEEPSEEK_API_KEY,
+        configuration: {
+          baseURL: 'https://api.deepseek.com/v1',
         },
         temperature: 0.7,
       }));

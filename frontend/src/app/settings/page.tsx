@@ -208,7 +208,7 @@ export default function SettingsDashboard() {
                         {contact.name || contact.phoneNumber}
                       </p>
                       <p className="text-xs text-white/50">
-                        {contact.isVIP ? "VIP (OpenAI) 💎" : "Standard (Gemini)"}
+                        {contact.isVIP ? "VIP (OpenAI/DeepSeek) 💎" : "Standard (Gemini)"}
                       </p>
                     </div>
                     
