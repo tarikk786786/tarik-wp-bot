@@ -153,7 +153,7 @@ class AIOrchestrator {
 
       return response;
     } catch (error) {
-      logger.error('Orchestrator Error:', error);
+      logger.error(error, 'Orchestrator Error:');
       emitAiInvocation("Message Reply Generation", "system", "error", 0);
       return "I'm having a little trouble thinking right now. Could you give me a moment?";
     }

@@ -47,7 +47,7 @@ class MemoryManager {
       logger.info(`Saved memory for ${phoneNumber}`);
       return memory;
     } catch (error) {
-      logger.error('Failed to save memory:', error);
+      logger.error(error, 'Failed to save memory:');
       throw error;
     }
   }
@@ -71,7 +71,7 @@ class MemoryManager {
 
       return memories.map(m => m.content);
     } catch (error) {
-      logger.error('Failed to retrieve memories:', error);
+      logger.error(error, 'Failed to retrieve memories:');
       return [];
     }
   }

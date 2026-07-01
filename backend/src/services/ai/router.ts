@@ -16,7 +16,7 @@ export class AIRouter {
   private initProviders() {
     if (process.env.GEMINI_API_KEY) {
       this.providers.set('gemini', new ChatGoogleGenerativeAI({
-        modelName: 'gemini-2.5-flash',
+        model: 'gemini-2.5-flash',
         apiKey: process.env.GEMINI_API_KEY,
         temperature: 0.7,
       }));
@@ -84,13 +84,13 @@ export class AIRouter {
     try {
       const formattedMessages = [
         ['system', systemPrompt],
-        ...messages.map(m => [m.role, m.content] as [string, string])
-      ];
+        ...messages.map(m => [m.role, m.content])
+      ] as any;
       
       const response = await model.invoke(formattedMessages);
       return response.content.toString();
     } catch (error) {
-      logger.error(`AI generation failed with provider ${provider || 'default'}:`, error);
+      logger.error(error, `AI generation failed with provider ${provider || 'default'}:`);
       throw error;
     }
   }

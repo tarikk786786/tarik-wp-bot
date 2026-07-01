@@ -76,7 +76,7 @@ export async function startTelegramBot() {
     }
 
     try {
-        const sessionString = loadSession();
+        const sessionString = await loadSession();
         const stringSession = new StringSession(sessionString);
         
         client = new TelegramClient(stringSession, apiId, apiHash, {

@@ -26,6 +26,7 @@ export const useInsForgeAuthState = async (sessionId: string): Promise<{ state: 
         await insforge.database.from('whatsapp_sessions')
             .delete()
             .eq('session_id', sessionId)
+            // @ts-ignore
             .in('key', keys);
     };
 
