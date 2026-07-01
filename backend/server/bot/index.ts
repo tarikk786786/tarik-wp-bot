@@ -61,7 +61,7 @@ const sessionId = process.env.RENDER ? 'whatsapp_session_render_prod' : 'whatsap
       logger: pino({ level: 'silent' }) as any,
       printQRInTerminal: false,
       auth: state,
-      browser: Browsers.macOS('Desktop'),
+      browser: Browsers.ubuntu('Chrome'),
       markOnlineOnConnect: true,
       syncFullHistory: true,
       generateHighQualityLinkPreview: true,
