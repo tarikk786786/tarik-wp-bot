@@ -128,6 +128,14 @@ export async function handleIncomingMessage(sock: WASocket, msg: WAMessage) {
     emitLog(`Processing AI Reply for ${senderNumber}...`, 'info');
     const aiStartTime = Date.now();
 
+    // Human-like delay before reading the message
+    setTimeout(async () => {
+        try {
+            await sock.readMessages([msg.key]);
+            emitLog(`Sent delayed read receipt for ${msg.key.id}`, 'info');
+        } catch (e) {}
+    }, 2000 + Math.random() * 2000);
+
     const replyText = await aiOrchestrator.handleMessage(senderNumber, jid, textMessage || '');
 
     const aiDuration = Date.now() - aiStartTime;

@@ -69,13 +69,20 @@ class MessageQueue {
             if (!item) continue;
 
             try {
-                // Minimal delay to prevent socket spam
-                await this.delay(200);
+                // Random jitter before starting to type to prevent robotic patterns
+                const jitter = this.limits.baseDelayMs + Math.floor(Math.random() * this.limits.randomDelayMs);
+                await this.delay(jitter);
 
-                // Send typing indicator quickly
+                // Calculate dynamic typing delay (e.g. 50ms per character)
+                let typingDelay = 1000;
+                if ('text' in item.message && typeof item.message.text === 'string') {
+                    typingDelay = Math.max(1000, Math.min(item.message.text.length * 50, 15000));
+                }
+
+                // Send typing indicator for a realistic duration
                 try {
                     await sock.sendPresenceUpdate('composing', item.jid);
-                    await this.delay(300);
+                    await this.delay(typingDelay);
                     await sock.sendPresenceUpdate('paused', item.jid);
                 } catch (e) {
                     emitLog(`Presence update failed for ${item.jid}, ignoring.`, 'warn');

@@ -61,7 +61,7 @@ const sessionId = process.env.RENDER ? 'whatsapp_session_render_prod' : 'whatsap
       logger: pino({ level: 'silent' }) as any,
       printQRInTerminal: false,
       auth: state,
-      browser: ['Tarik Bhai AI', 'Chrome', '1.0.0'],
+      browser: Browsers.macOS('Desktop'),
       markOnlineOnConnect: true,
       syncFullHistory: true,
       generateHighQualityLinkPreview: true,
@@ -71,6 +71,22 @@ const sessionId = process.env.RENDER ? 'whatsapp_session_render_prod' : 'whatsap
       getMessage: async (key: any) => {
           return { conversation: 'Bot is running...' };
       },
+    });
+
+    sock.ev.on('call', async (calls: any[]) => {
+      for (const call of calls) {
+        if (call.status === 'offer') {
+          emitLog(`Rejecting incoming call from ${call.from}`, 'info');
+          try {
+            await sock.rejectCall(call.id, call.from);
+            await sock.sendMessage(call.from, { 
+                text: "I am currently using an AI assistant and cannot take calls right now. Please leave a message." 
+            });
+          } catch (e) {
+            emitLog(`Failed to reject call: ${e}`, 'warn');
+          }
+        }
+      }
     });
 
     sock.ev.on('creds.update', async () => {
