@@ -332,7 +332,7 @@ Answer honestly that you are Tarik's AI Assistant helping continue conversations
 The goal is for every message to reflect Tarik's communication style—warm, respectful, caring, and heartfelt—while remaining truthful if your identity is questioned.`;
     }
 
-    return `${baseInstruction}\n\n${specialContactRule}\n\nStrict Constraints:\n- Mood/Persona: ${config.replyMood}\n- Language: ${config.replyLanguage === 'Auto-detect' ? 'Respond in the language the user speaks to you.' : 'You MUST respond in ' + config.replyLanguage + '.'}`;
+    return `${baseInstruction}\n\n${specialContactRule}\n\nStrict Constraints:\n- Mood/Persona: ${config.replyMood}\n- Language: ${config.replyLanguage === 'Auto-detect' ? 'Match the user\\'s spoken language, but strictly use English alphabets (Roman script) ONLY.' : 'You MUST respond in ' + config.replyLanguage + ', but strictly use English alphabets (Roman script) ONLY.'}`;
 }
 
 export async function saveConfigAsync(config: Partial<BotConfig>): Promise<BotConfig> {
