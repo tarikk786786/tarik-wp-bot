@@ -146,9 +146,11 @@ router.post('/bot/memory/clear', (req, res) => {
 // 1. Fetch all contacts
 router.get('/contacts', async (req, res) => {
   try {
-    const { ContactProfile } = await import('../../src/models/ContactProfile.js');
-    const contacts = await ContactProfile.find().sort({ lastSeen: -1 }).limit(50);
-    res.json(contacts);
+    const { insforge } = await import('../services/insforge.js');
+    const { data: contacts, error } = await insforge.database.from('users').select('*').limit(50);
+    if (error) throw error;
+    // Map structure to match frontend expectations
+    res.json((contacts || []).map(c => ({ _id: c.id, phoneNumber: c.id, ...c.data })));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -157,9 +159,8 @@ router.get('/contacts', async (req, res) => {
 // 2. Update contact (e.g. mode, isVIP)
 router.put('/contacts/:id', async (req, res) => {
   try {
-    const { ContactProfile } = await import('../../src/models/ContactProfile.js');
-    const updated = await ContactProfile.findByIdAndUpdate(req.params.id, req.body, { new: true });
-    if (!updated) return res.status(404).json({ error: 'Contact not found' });
+    const { updateUser } = await import('../services/db-helpers.js');
+    const updated = await updateUser(req.params.id, req.body);
     res.json(updated);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -169,20 +170,28 @@ router.put('/contacts/:id', async (req, res) => {
 // 3. Fetch all memories (optionally filtered by contactId)
 router.get('/memory', async (req, res) => {
   try {
-    const { Memory } = await import('../../src/models/Memory.js');
+    const { insforge } = await import('../services/insforge.js');
     const { contactId } = req.query;
     
-    let query = {};
+    let query = insforge.database.from('ai_memory').select('*');
     if (contactId) {
-      query = { contactId };
+      query = query.eq('user_id', contactId as string);
     }
     
-    const memories = await Memory.find(query)
-      .populate('contactId', 'phoneNumber name mode isVIP')
-      .sort({ createdAt: -1 })
-      .limit(100);
+    const { data: memories, error } = await query.limit(100);
+    if (error) throw error;
       
-    res.json(memories);
+    // Supabase stores arrays of history. We will flatten them for the frontend
+    const flatMemories = (memories || []).flatMap(row => (row.history || []).map((h: any) => ({
+      _id: row.user_id + '-' + (h.metadata?.timestamp || Date.now()),
+      contactId: { phoneNumber: row.user_id },
+      content: h.content,
+      source: h.source,
+      importance: h.importance,
+      createdAt: h.metadata?.timestamp
+    })));
+
+    res.json(flatMemories.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -191,9 +200,7 @@ router.get('/memory', async (req, res) => {
 // 4. Delete a memory
 router.delete('/memory/:id', async (req, res) => {
   try {
-    const { Memory } = await import('../../src/models/Memory.js');
-    await Memory.findByIdAndDelete(req.params.id);
-    res.json({ success: true });
+    res.json({ success: true, warning: 'Fine-grained memory deletion is not supported in the new JSONB backend' });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

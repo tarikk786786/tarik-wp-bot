@@ -1,5 +1,4 @@
-import { Memory } from '../../models/Memory.js';
-import { ContactProfile } from '../../models/ContactProfile.js';
+import { saveAIMemory, loadAIMemory } from '../../../server/services/db-helpers.js';
 import { logger } from '../../utils/logger.js';
 // Using Gemini for embeddings as an example, but this can be abstracted later
 import { GoogleGenerativeAIEmbeddings } from '@langchain/google-genai';
@@ -22,17 +21,19 @@ class MemoryManager {
     metadata: any = {}
   ) {
     try {
-      const contact = await ContactProfile.findOne({ phoneNumber });
-      if (!contact) {
-        logger.warn(`Cannot save memory: Contact ${phoneNumber} not found.`);
-        return null;
-      }
+      // Fetch existing memory to append
+      const memoryData = await loadAIMemory(phoneNumber);
+      const history = memoryData?.history || [];
 
       // Generate embedding vector for the content
-      const vector = await this.embeddings.embedQuery(content);
+      let vector = null;
+      try {
+        vector = await this.embeddings.embedQuery(content);
+      } catch (e) {
+        logger.warn('Failed to generate embedding, continuing without vector');
+      }
 
-      const memory = new Memory({
-        contactId: contact._id,
+      const newMemory = {
         content,
         source,
         importance,
@@ -41,11 +42,13 @@ class MemoryManager {
           ...metadata,
           timestamp: new Date()
         }
-      });
+      };
 
-      await memory.save();
+      history.push(newMemory);
+
+      await saveAIMemory(phoneNumber, history);
       logger.info(`Saved memory for ${phoneNumber}`);
-      return memory;
+      return newMemory;
     } catch (error) {
       logger.error(error, 'Failed to save memory:');
       throw error;
@@ -54,22 +57,20 @@ class MemoryManager {
 
   public async retrieveRelevantMemories(phoneNumber: string, query: string, limit: number = 5) {
     try {
-      const contact = await ContactProfile.findOne({ phoneNumber });
-      if (!contact) return [];
+      const memoryData = await loadAIMemory(phoneNumber);
+      if (!memoryData || !memoryData.history) return [];
 
-      const queryVector = await this.embeddings.embedQuery(query);
-
-      // In a real MongoDB Atlas environment, you would use $vectorSearch here.
-      // Since this is a standard mongoose model fallback, we can fetch all memories
-      // and do a cosine similarity in memory, or just return recent memories if $vectorSearch isn't setup.
+      let history = memoryData.history;
       
-      // For now, returning the most recent important memories
-      // (Vector Search requires Atlas indexing which must be setup in the MongoDB dashboard)
-      const memories = await Memory.find({ contactId: contact._id })
-        .sort({ importance: -1, createdAt: -1 })
-        .limit(limit);
+      // Sort by importance and date (newest first)
+      history.sort((a: any, b: any) => {
+        if (a.importance !== b.importance) {
+          return b.importance - a.importance;
+        }
+        return new Date(b.metadata?.timestamp).getTime() - new Date(a.metadata?.timestamp).getTime();
+      });
 
-      return memories.map(m => m.content);
+      return history.slice(0, limit).map((m: any) => m.content);
     } catch (error) {
       logger.error(error, 'Failed to retrieve memories:');
       return [];

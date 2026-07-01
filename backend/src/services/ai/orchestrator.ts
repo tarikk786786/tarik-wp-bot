@@ -1,7 +1,7 @@
 import { aiRouter, AIProvider } from './router.js';
 import { memoryManager } from './memory.js';
-import { ContactProfile } from '../../models/ContactProfile.js';
-import { Conversation } from '../../models/Conversation.js';
+import { insforge } from '../../../server/services/insforge.js';
+import { saveChat } from '../../../server/services/db-helpers.js';
 import { logger } from '../../utils/logger.js';
 import { getSystemPrompt } from '../../../server/services/config.js';
 import { emitAiInvocation, emitPendingApproval, incrementMessagesProcessed, backendEvents } from '../../../server/services/socket.js';
@@ -39,17 +39,17 @@ class AIOrchestrator {
       incrementMessagesProcessed();
       
       // 1. Get or create Contact Profile
-      let contact = await ContactProfile.findOne({ phoneNumber });
-      if (!contact) {
-        contact = new ContactProfile({
-          phoneNumber,
-          tags: ['new_contact']
-        });
-        await contact.save();
+      let { data: contactRow } = await insforge.database.from('users').select('*').eq('id', phoneNumber).maybeSingle();
+      if (!contactRow) {
+        contactRow = { id: phoneNumber, data: { phoneNumber, tags: ['new_contact'], mode: 'auto', isVIP: false } };
+        await insforge.database.from('users').insert([contactRow]);
       }
+      const contactData = contactRow.data || {};
+      const mode = contactData.mode || 'auto';
+      const isVIP = contactData.isVIP || false;
 
       // If user is in manual mode, AI shouldn't reply autonomously
-      if (contact.mode === 'manual') {
+      if (mode === 'manual') {
         logger.info(`Skipping AI reply for ${phoneNumber} - mode is manual`);
         return null;
       }
@@ -60,17 +60,8 @@ class AIOrchestrator {
       }
 
       // 3. Get or create active Conversation
-      let conversation = await Conversation.findOne({ 
-        contactId: contact._id, 
-        status: 'active' 
-      });
-
-      if (!conversation) {
-        conversation = new Conversation({
-          contactId: contact._id,
-          messages: []
-        });
-      }
+      let { data: conversationRow } = await insforge.database.from('chats').select('data').eq('chat_id', phoneNumber).maybeSingle();
+      let conversation = conversationRow?.data || { messages: [] };
 
       // Add user message to conversation history
       conversation.messages.push({
@@ -98,7 +89,7 @@ class AIOrchestrator {
       // 6. Generate Response using Router
       // Defaulting to gemini, but can dynamically route based on VIP status
       // We prioritize DeepSeek for VIP reasoning, falling back to OpenAI
-      const provider: AIProvider = contact.isVIP 
+      const provider: AIProvider = isVIP 
         ? (process.env.DEEPSEEK_API_KEY ? 'deepseek' : 'openai')
         : 'gemini';
       
@@ -118,12 +109,12 @@ class AIOrchestrator {
         content: response,
         timestamp: new Date()
       });
-      await conversation.save();
+      await saveChat(phoneNumber, conversation);
 
       await memoryManager.saveMemory(phoneNumber, response, 'system', 5, { jid });
 
       // If in approval mode, we might want to store this in a pending queue instead of sending
-      if (contact.mode === 'approval') {
+      if (mode === 'approval') {
         logger.info(`Approval mode: Generated response for ${phoneNumber} but not sending automatically.`);
         
         const messageId = crypto.randomUUID();
@@ -132,7 +123,7 @@ class AIOrchestrator {
           id: messageId,
           sender: phoneNumber,
           time: new Date().toLocaleTimeString(),
-          priority: contact.isVIP ? "high" : "medium",
+          priority: isVIP ? "high" : "medium",
           originalMessage: text,
           proposedReply: response,
           model: provider,
