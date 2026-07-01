@@ -1,0 +1,12 @@
+var R=require("../../chunks/ssr/[turbopack]_runtime.js")("server/app/_not-found/page.js")
+R.c("server/chunks/ssr/[root-of-the-server]__1ydrn0d._.js")
+R.c("server/chunks/ssr/16z0_next_dist_esm_build_templates_app-page_0svuoos.js")
+R.c("server/chunks/ssr/[root-of-the-server]__1y2y8-5._.js")
+R.c("server/chunks/ssr/[root-of-the-server]__1gt90-e._.js")
+R.c("server/chunks/ssr/Downloads_BROWSER_tarik-wp-bot_src_app_layout_tsx_1dd2a0-._.js")
+R.c("server/chunks/ssr/16z0_next_dist_client_components_15e0iuz._.js")
+R.c("server/chunks/ssr/16z0_next_dist_client_components_builtin_forbidden_1tcxwkw.js")
+R.c("server/chunks/ssr/16z0_next_dist_client_components_builtin_unauthorized_1f7hvzc.js")
+R.c("server/chunks/ssr/0wta_BROWSER_tarik-wp-bot__next-internal_server_app__not-found_page_actions_0dz8dt5.js")
+R.m(49053)
+module.exports=R.m(49053).exports

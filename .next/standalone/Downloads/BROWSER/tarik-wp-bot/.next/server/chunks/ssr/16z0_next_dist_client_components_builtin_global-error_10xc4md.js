@@ -1,0 +1,3 @@
+module.exports=[11663,(a,b,c)=>{let{createClientModuleProxy:d}=a.r(5019);a.n(d("[project]/Downloads/BROWSER/tarik-wp-bot/node_modules/next/dist/client/components/builtin/global-error.js <module evaluation>"))},78932,(a,b,c)=>{let{createClientModuleProxy:d}=a.r(5019);a.n(d("[project]/Downloads/BROWSER/tarik-wp-bot/node_modules/next/dist/client/components/builtin/global-error.js"))},44401,a=>{"use strict";a.i(11663);var b=a.i(78932);a.n(b)},88091,a=>{a.n(a.i(44401))}];
+
+//# sourceMappingURL=16z0_next_dist_client_components_builtin_global-error_10xc4md.js.map
