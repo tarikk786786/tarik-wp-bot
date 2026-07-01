@@ -4,13 +4,20 @@ import { logger } from '../../utils/logger.js';
 import { GoogleGenerativeAIEmbeddings } from '@langchain/google-genai';
 
 class MemoryManager {
-  private embeddings: GoogleGenerativeAIEmbeddings;
+  private embeddings: GoogleGenerativeAIEmbeddings | null = null;
 
   constructor() {
-    this.embeddings = new GoogleGenerativeAIEmbeddings({
-      modelName: "text-embedding-004", // Latest Gemini embedding model
-      apiKey: process.env.GEMINI_API_KEY
-    });
+    try {
+      const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+      if (apiKey) {
+        this.embeddings = new GoogleGenerativeAIEmbeddings({
+          modelName: "text-embedding-004", // Latest Gemini embedding model
+          apiKey: apiKey
+        });
+      }
+    } catch (e) {
+      logger.warn('Failed to initialize GoogleGenerativeAIEmbeddings. Embeddings will be disabled.');
+    }
   }
 
   public async saveMemory(
