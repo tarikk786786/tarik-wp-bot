@@ -51,6 +51,12 @@ initSocket(io);
 const PORT = 3000;
 
 app.use(express.json());
+
+// Basic health check for Render
+app.get('/', (req, res) => {
+  res.json({ status: 'ok', service: 'WhatsApp AI Bot API' });
+});
+
 app.use('/api', apiRoutes);
 
 // Frontend is now managed in a separate Next.js application.
