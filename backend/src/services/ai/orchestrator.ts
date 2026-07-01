@@ -86,22 +86,41 @@ class AIOrchestrator {
         
       const systemPrompt = `${basePrompt}${memoryContext}`;
 
-      // 6. Generate Response using Router
-      // Defaulting to gemini, but can dynamically route based on VIP status
-      // We prioritize DeepSeek for VIP reasoning, falling back to OpenAI
-      const provider: AIProvider = isVIP 
-        ? (process.env.DEEPSEEK_API_KEY ? 'deepseek' : 'openai')
-        : 'gemini';
+      // 6. Generate Response using Router with Fallback Chain
+      const vipProviders: AIProvider[] = ['deepseek', 'openai', 'gemini'];
+      const standardProviders: AIProvider[] = ['gemini', 'openai'];
+      const providersToTry = isVIP ? vipProviders : standardProviders;
       
-      const startTime = Date.now();
-      const response = await aiRouter.generateResponse(
-        systemPrompt,
-        conversation.messages.map(m => ({ role: m.role, content: m.content })),
-        provider
-      );
-      const latency = Date.now() - startTime;
-      
-      emitAiInvocation("Message Reply Generation", provider, "success", latency);
+      let response: string | null = null;
+      let latency = 0;
+      let finalProvider: AIProvider = 'gemini';
+      let lastError = null;
+
+      for (const p of providersToTry) {
+        try {
+          // Skip deepseek if no key is configured
+          if (p === 'deepseek' && !process.env.DEEPSEEK_API_KEY) continue;
+          
+          const startTime = Date.now();
+          response = await aiRouter.generateResponse(
+            systemPrompt,
+            conversation.messages.map(m => ({ role: m.role, content: m.content })),
+            p
+          );
+          latency = Date.now() - startTime;
+          finalProvider = p;
+          emitAiInvocation("Message Reply Generation", p, "success", latency);
+          break; // Success!
+        } catch (err: any) {
+          logger.warn(`Provider ${p} failed: ${err.message}. Trying next fallback...`);
+          emitAiInvocation("Message Reply Generation", p, "error", 0);
+          lastError = err;
+        }
+      }
+
+      if (!response) {
+         throw lastError || new Error("All AI providers failed");
+      }
 
       // 7. Save AI response
       conversation.messages.push({
@@ -126,7 +145,7 @@ class AIOrchestrator {
           priority: isVIP ? "high" : "medium",
           originalMessage: text,
           proposedReply: response,
-          model: provider,
+          model: finalProvider,
           confidence: Math.floor(Math.random() * (99 - 85 + 1) + 85) // Mock confidence
         });
         

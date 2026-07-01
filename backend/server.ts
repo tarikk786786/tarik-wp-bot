@@ -1,6 +1,8 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import path from 'path';
@@ -27,7 +29,16 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 const app = express();
-app.use(cors());
+app.use(helmet());
+app.use(cors({ origin: process.env.FRONTEND_URL || '*' }));
+
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 200, // Limit each IP to 200 requests per windowMs
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use(limiter);
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {

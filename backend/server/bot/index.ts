@@ -121,10 +121,14 @@ const sessionId = process.env.RENDER ? 'whatsapp_session_render_prod' : 'whatsap
             retryCount = Math.max(retryCount, 3);
         } else if (statusCode === DisconnectReason.restartRequired) {
             reason = 'Restart Required';
+        } else if (statusCode === DisconnectReason.timedOut) {
+            reason = 'Connection Timed Out';
         } else if (statusCode === DisconnectReason.multideviceMismatch) {
             shouldReconnect = false;
             shouldClearSession = true;
             reason = 'Multi-device Mismatch';
+        } else {
+            reason = `Unknown Disconnect (${statusCode})`;
         }
         
         emitLog(`Connection closed: ${reason}. Reconnecting: ${shouldReconnect}`, 'warn');
