@@ -21,6 +21,8 @@ export default function Dashboard() {
     aiLatency: "0ms",
     pendingApprovals: "0"
   });
+  const [botStatus, setBotStatus] = useState<string>("initializing");
+  const [qrCode, setQrCode] = useState<string>("");
 
   useEffect(() => {
     if (!socket) return;
@@ -36,11 +38,21 @@ export default function Dashboard() {
     socket.on("stats_update", (newStats) => {
       setStats((prev) => ({ ...prev, ...newStats }));
     });
+    
+    socket.on("bot_status", (status: { status: string, reason?: string }) => {
+      setBotStatus(status.status);
+    });
+    
+    socket.on("qr_code", (qrUrl: string) => {
+      setQrCode(qrUrl);
+    });
 
     return () => {
       socket.off("log_event");
       socket.off("ai_invocation");
       socket.off("stats_update");
+      socket.off("bot_status");
+      socket.off("qr_code");
     };
   }, [socket]);
 
@@ -75,6 +87,33 @@ export default function Dashboard() {
       </header>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <Card className="glass border-none relative overflow-hidden group">
+          <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              WhatsApp Status
+            </CardTitle>
+            <div className="p-2 rounded-full bg-white/5">
+              <Activity className={`w-4 h-4 ${botStatus === 'connected' ? 'text-green-400' : 'text-yellow-400'}`} />
+            </div>
+          </CardHeader>
+          <CardContent>
+            {botStatus === 'qr_ready' && qrCode ? (
+              <div className="flex flex-col items-center justify-center mt-2">
+                <img src={qrCode} alt="WhatsApp QR Code" className="w-32 h-32 rounded-lg" />
+                <p className="text-xs mt-2 text-yellow-400 font-medium">Scan to connect</p>
+              </div>
+            ) : (
+              <>
+                <div className="text-2xl font-bold uppercase">{botStatus.replace('_', ' ')}</div>
+                <p className={`text-xs mt-1 ${botStatus === 'connected' ? 'text-green-400' : 'text-muted-foreground'}`}>
+                  {botStatus === 'connected' ? 'Bot is running' : 'Waiting for connection'}
+                </p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
         <StatsCard 
           title="Active Sessions" 
           value={stats.activeSessions} 
@@ -88,17 +127,11 @@ export default function Dashboard() {
           icon={<MessageCircle className="w-4 h-4 text-primary" />}
         />
         <StatsCard 
-          title="AI Router Latency" 
-          value={stats.aiLatency} 
-          change="Updated live" 
-          icon={<Zap className="w-4 h-4 text-yellow-400" />}
-        />
-        <StatsCard 
           title="Pending Approvals" 
           value={stats.pendingApprovals} 
           change="Updated live" 
           alert={parseInt(stats.pendingApprovals) > 0}
-          icon={<Activity className="w-4 h-4 text-destructive" />}
+          icon={<Zap className="w-4 h-4 text-destructive" />}
         />
       </div>
 
