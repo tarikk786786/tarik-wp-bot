@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Root package.json to proxy Render deployment commands to the backend folder.",
   "scripts": {
-    "install": "cd backend && npm install",
+    "install": "cd backend && npm install --legacy-peer-deps",
     "build": "cd backend && npm run build",
     "start": "cd backend && npm start"
   }
