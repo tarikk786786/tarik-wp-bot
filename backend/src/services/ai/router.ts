@@ -73,10 +73,12 @@ export class AIRouter {
         if (data) {
           const text = await data.text();
           const keys = JSON.parse(text);
-          if (keys.OPENAI_API_KEY) {
-            process.env.OPENAI_API_KEY = keys.OPENAI_API_KEY;
-            this.initProviders();
-          }
+          if (keys.OPENAI_API_KEY) process.env.OPENAI_API_KEY = keys.OPENAI_API_KEY;
+          if (keys.GEMINI_API_KEY) process.env.GEMINI_API_KEY = keys.GEMINI_API_KEY;
+          if (keys.ANTHROPIC_API_KEY) process.env.ANTHROPIC_API_KEY = keys.ANTHROPIC_API_KEY;
+          if (keys.OPENROUTER_API_KEY) process.env.OPENROUTER_API_KEY = keys.OPENROUTER_API_KEY;
+          if (keys.DEEPSEEK_API_KEY) process.env.DEEPSEEK_API_KEY = keys.DEEPSEEK_API_KEY;
+          this.initProviders();
         }
       } catch(e) {
         logger.error(e, 'Failed to load remote keys');

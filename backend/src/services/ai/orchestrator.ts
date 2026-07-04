@@ -87,7 +87,7 @@ class AIOrchestrator {
       const systemPrompt = `${basePrompt}${memoryContext}`;
 
       // 6. Generate Response using Router with Fallback Chain
-      const vipProviders: AIProvider[] = ['deepseek', 'openai', 'gemini'];
+      const vipProviders: AIProvider[] = ['gemini', 'deepseek', 'openai'];
       const standardProviders: AIProvider[] = ['gemini', 'openai'];
       const providersToTry = isVIP ? vipProviders : standardProviders;
       
