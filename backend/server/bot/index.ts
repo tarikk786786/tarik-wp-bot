@@ -1,4 +1,5 @@
 import { makeWASocket, DisconnectReason, fetchLatestBaileysVersion, Browsers } from '@whiskeysockets/baileys';
+import NodeCache from 'node-cache';
 import pino from 'pino';
 import QRCode from 'qrcode';
 import { emitStatus, emitLog, emitQR, getIo } from '../services/socket.js';
@@ -19,6 +20,9 @@ let retryCount = 0;
 let reconnectTimeout: NodeJS.Timeout | null = null;
 let currentSaveCreds: (() => Promise<void>) | null = null;
 let currentRemoveCreds: (() => Promise<void>) | null = null;
+
+// Initialize msgRetryCounterCache to prevent dropped messages due to decryption failures
+const msgRetryCounterCache = new NodeCache();
 
 export function getSock() {
     return sock;
@@ -62,9 +66,10 @@ const sessionId = process.env.RENDER ? 'whatsapp_session_render_prod' : 'whatsap
       printQRInTerminal: false,
       auth: state,
       browser: Browsers.ubuntu('Chrome'),
-      markOnlineOnConnect: true,
-      syncFullHistory: true,
-      generateHighQualityLinkPreview: true,
+      markOnlineOnConnect: false, // Prevents ban flags when rapidly reconnecting
+      syncFullHistory: false, // CRITICAL: Prevents massive memory spikes and crashes on cloud hosts
+      generateHighQualityLinkPreview: false, // Prevents crashes from malicious/large URLs
+      msgRetryCounterCache, // Allows Baileys to retry failed decryptions
       connectTimeoutMs: 60000,
       defaultQueryTimeoutMs: 60000,
       keepAliveIntervalMs: 25000,
