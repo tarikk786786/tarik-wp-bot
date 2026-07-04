@@ -6,6 +6,7 @@ import path from 'path';
 import { emitLog, emitStatus, getCurrentStatus, getCurrentStatusData, getCurrentQr, getCurrentTgStatus, getCurrentTgStatusData, getCurrentTgQr } from '../services/socket.js';
 import { getConfig, saveConfig } from '../services/config.js';
 import { clearAllMemory } from '../services/memory.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -32,6 +33,7 @@ const rateLimiter = (req: express.Request, res: express.Response, next: express.
 };
 
 router.use(rateLimiter);
+router.use(authMiddleware);
 
 const isVercel = process.env.VERCEL === '1' || process.env.VERCEL === 'true';
 
@@ -87,7 +89,21 @@ router.get('/config', (req, res) => {
 });
 
 router.post('/config', (req, res) => {
-  const updated = saveConfig(req.body);
+  const newConfig = req.body;
+
+  // Basic Prompt Injection & Jailbreak check
+  if (newConfig && newConfig.systemInstruction) {
+      const lowerPrompt = newConfig.systemInstruction.toLowerCase();
+      const forbidden = ['jailbreak', 'godmod', 'bypass', 'no restrictions', 'ignore all previous', 'ignore previous'];
+      
+      for (const word of forbidden) {
+          if (lowerPrompt.includes(word)) {
+              return res.status(400).json({ error: 'Config rejected: System instruction contains forbidden or unsafe keywords.' });
+          }
+      }
+  }
+
+  const updated = saveConfig(newConfig);
   emitLog('Bot configuration updated.', 'info');
   
   // Restart Telegram bot to apply new token/settings if needed
